@@ -1,0 +1,6 @@
+{
+  "name": "NP Taskwork - ระบบติดตามงาน",
+  "description": "ระบบติดตามงานและสถานะการดำเนินงาน พร้อมการอนุมัติ ประวัติการทำแทน และรายงาน PDF",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

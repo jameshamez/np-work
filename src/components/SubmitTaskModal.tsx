@@ -1,0 +1,349 @@
+import React, { useState } from 'react';
+import { Task } from '../types';
+import { useApp } from '../context/AppContext';
+import {
+  X,
+  Upload,
+  Image as ImageIcon,
+  FileText,
+  AlertCircle,
+  CheckCircle,
+  UserCheck,
+  Send,
+  Paperclip,
+  ExternalLink,
+  User,
+} from 'lucide-react';
+
+interface SubmitTaskModalProps {
+  task: Task | null;
+  onClose: () => void;
+}
+
+export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose }) => {
+  const { currentUser, submitTaskForReview, users } = useApp();
+
+  const [comment, setComment] = useState('');
+  const [pictureUrl, setPictureUrl] = useState('');
+  const [pictureName, setPictureName] = useState('');
+  const [documentName, setDocumentName] = useState('');
+  const [documentSizeMB, setDocumentSizeMB] = useState<number>(0);
+  const [googleDriveUrl, setGoogleDriveUrl] = useState(task?.googleDriveUrl || '');
+  
+  // SRS Table #2: Reviewer Dropdown Selection
+  const [selectedReviewerId, setSelectedReviewerId] = useState<string>(() => {
+    if (task?.reviewerUserId) return task.reviewerUserId;
+    const defaultReviewer = users.find(u => u.role === 'admin' || u.role === 'super_admin');
+    return defaultReviewer?.id || '';
+  });
+
+  const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (!task) return null;
+
+  // Sample preset demo pictures for quick testing
+  const SAMPLE_PICTURES = [
+    { name: 'screen_mockup_7030.png', url: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80' },
+    { name: 'system_architecture_diagram.jpg', url: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80' },
+    { name: 'server_rack_installation.jpg', url: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80' },
+  ];
+
+  const handlePictureSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPictureName(file.name);
+      setPictureUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const handleDocumentSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const sizeMB = file.size / (1024 * 1024);
+      if (sizeMB > 300) {
+        setErrorMsg('ขนาดไฟล์เกินข้อกำหนดสูงสุด 300MB กรุณาเลือกไฟล์ที่มีขนาดเล็กกว่า');
+        setDocumentName('');
+        setDocumentSizeMB(0);
+        return;
+      }
+      setErrorMsg('');
+      setDocumentName(file.name);
+      setDocumentSizeMB(Math.round(sizeMB * 10) / 10);
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!comment.trim()) {
+      setErrorMsg('กรุณากรอกข้อความสรุปการดำเนินงาน');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    const reviewerObj = users.find(u => u.id === selectedReviewerId);
+    if (reviewerObj) {
+      task.reviewerUserId = reviewerObj.id;
+      task.reviewerUserName = reviewerObj.fullName;
+    }
+    if (googleDriveUrl.trim()) {
+      task.googleDriveUrl = googleDriveUrl.trim();
+    }
+
+    const attachments: { name: string; url: string; type: 'image' | 'file'; size: number }[] = [
+      {
+        name: pictureName || 'work_snapshot.png',
+        url: pictureUrl || SAMPLE_PICTURES[0].url,
+        type: 'image',
+        size: 1500000,
+      },
+    ];
+
+    if (documentName) {
+      attachments.push({
+        name: documentName,
+        url: '#',
+        type: 'file',
+        size: (documentSizeMB || 10) * 1024 * 1024,
+      });
+    }
+
+    submitTaskForReview(task.id, comment, attachments);
+    setIsSubmitting(false);
+    onClose();
+  };
+
+  const isDelegated = currentUser && currentUser.id !== task.assignedToUserId;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
+      <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-gray-100 overflow-hidden my-8">
+        
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between" style={{ backgroundColor: '#ffcc80' }}>
+          <div>
+            <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-white text-amber-950">
+              #{task.code} • {task.projectName}
+            </span>
+            <h3 className="font-extrabold text-base text-amber-950 mt-1">
+              ส่งตรวจงาน: {task.title}
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-full hover:bg-white/50 text-amber-950 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          
+          {/* Delegation Notification if sending on behalf */}
+          {isDelegated && (
+            <div className="p-3 bg-sky-50 border border-sky-200 rounded-2xl flex items-start space-x-2.5 text-xs text-sky-900">
+              <UserCheck className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">ระบบบันทึกการส่งงานแทนกัน (Delegation Audit)</p>
+                <p className="text-[11px] text-sky-800 mt-0.5">
+                  คุณ (<strong className="font-bold">{currentUser?.fullName}</strong>) กำลังส่งงานแทนเจ้าของงาน (<strong className="font-bold">{task.assignedToUserName}</strong>) ระบบจะบันทึกประวัติการทำแทนลงใน Audit Log
+                </p>
+              </div>
+            </div>
+          )}
+
+          {errorMsg && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-2xl flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {/* SRS Requirement #2: Select Specific Reviewer */}
+          <div className="space-y-1 bg-amber-50/60 p-3 rounded-2xl border border-amber-200">
+            <label className="block text-xs font-bold text-amber-950 flex items-center space-x-1.5">
+              <User className="w-4 h-4 text-amber-700" />
+              <span>ระบุตัวบุคคลผู้ตรวจงาน (Reviewer Dropdown):</span>
+            </label>
+            <select
+              value={selectedReviewerId}
+              onChange={e => setSelectedReviewerId(e.target.value)}
+              className="w-full px-3 py-2 text-xs font-bold border border-amber-300 rounded-xl bg-white text-gray-800 focus:ring-2 focus:ring-amber-500"
+            >
+              {users
+                .filter(u => u.role === 'admin' || u.role === 'super_admin')
+                .map(u => (
+                  <option key={u.id} value={u.id}>
+                    ส่งตรวจที่: {u.fullName?.replace(/\s*\([^)]*\)/g, '')}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          {/* Requirement 1: Text Note */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-gray-800">
+              1. ข้อความรายละเอียดผลการดำเนินงาน <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              rows={3}
+              placeholder="ระบุรายละเอียด เช่น ดำเนินการปรับปรุงโค้ดและทดสอบตาม Checklist ครบถ้วน..."
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              className="w-full px-3.5 py-2.5 text-xs border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+              required
+            />
+          </div>
+
+          {/* SRS Requirement #4: Google Drive Integration via URL Link */}
+          <div className="space-y-1 bg-blue-50/50 p-3 rounded-2xl border border-blue-200">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-blue-950 flex items-center space-x-1.5">
+                <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
+                <span>คลังเก็บไฟล์กลาง (Google Drive Integration - แปะลิงก์ URL):</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setGoogleDriveUrl('https://drive.google.com/drive/folders/1A2b3C4d5E6f7G8h9I0j-np_taskwork')}
+                className="text-[10px] text-blue-700 bg-blue-100 hover:bg-blue-200 px-2 py-0.5 rounded-md font-bold"
+              >
+                ใส่ลิงก์ไดรฟ์บริษัทตัวอย่าง
+              </button>
+            </div>
+            <input
+              type="url"
+              value={googleDriveUrl}
+              onChange={e => setGoogleDriveUrl(e.target.value)}
+              placeholder="https://drive.google.com/drive/folders/..."
+              className="w-full px-3 py-2 text-xs border border-blue-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Requirement 2: Picture Attachment */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-gray-800">
+              2. แนบรูปภาพผลงาน (Picture)
+            </label>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* File upload input for image */}
+              <label className="border-2 border-dashed border-gray-200 hover:border-orange-400 rounded-2xl p-3 text-center cursor-pointer transition-colors flex flex-col items-center justify-center bg-gray-50/50">
+                <ImageIcon className="w-5 h-5 text-orange-500 mb-1" />
+                <span className="text-xs font-bold text-gray-700">อัปโหลดรูปภาพ</span>
+                <span className="text-[10px] text-gray-400">JPG, PNG, GIF</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePictureSelect}
+                  className="hidden"
+                />
+              </label>
+
+              {/* Sample Preset Picture Chooser */}
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-gray-500 block">หรือเลือกรูปตัวอย่าง:</span>
+                <div className="space-y-1">
+                  {SAMPLE_PICTURES.map((sample, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        setPictureName(sample.name);
+                        setPictureUrl(sample.url);
+                      }}
+                      className={`w-full text-left px-2.5 py-1 rounded-xl border text-[11px] truncate transition-all cursor-pointer ${
+                        pictureName === sample.name
+                          ? 'border-orange-500 bg-orange-50 font-bold text-orange-900'
+                          : 'border-gray-200 hover:bg-gray-50 text-gray-600'
+                      }`}
+                    >
+                      🖼️ {sample.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Selected Image Preview */}
+            {pictureUrl && (
+              <div className="relative rounded-2xl overflow-hidden border border-gray-200 max-h-32 bg-black/5">
+                <img
+                  src={pictureUrl}
+                  alt="Preview"
+                  className="w-full h-32 object-cover"
+                />
+                <span className="absolute bottom-2 left-2 bg-black/70 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-xs">
+                  {pictureName}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Requirement 3: File Attachment (Max 300MB) */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-gray-800">
+                3. แนบไฟล์เอกสาร/ซอร์สโค้ด (File)
+              </label>
+              <span className="text-[10px] text-gray-400">รองรับไฟล์ใหญ่สูงสุด 300MB</span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <label className="flex-1 border border-gray-200 hover:border-orange-400 rounded-2xl px-3 py-2 bg-gray-50/50 cursor-pointer transition-colors flex items-center justify-between text-xs">
+                <div className="flex items-center space-x-2 truncate">
+                  <FileText className="w-4 h-4 text-orange-600 shrink-0" />
+                  <span className="font-semibold text-gray-700 truncate">
+                    {documentName ? `${documentName} (${documentSizeMB || 10} MB)` : 'เลือกไฟล์เอกสาร (.pdf, .zip, .docx)...'}
+                  </span>
+                </div>
+                <Upload className="w-4 h-4 text-gray-400 shrink-0" />
+                <input
+                  type="file"
+                  onChange={handleDocumentSelect}
+                  className="hidden"
+                />
+              </label>
+
+              {/* Preset demo file */}
+              <button
+                type="button"
+                onClick={() => {
+                  setDocumentName('project_deliverables_v1.zip');
+                  setDocumentSizeMB(145.2);
+                  setErrorMsg('');
+                }}
+                className="px-3 py-2 text-[11px] font-bold text-orange-800 bg-orange-100 hover:bg-orange-200 rounded-xl transition-colors whitespace-nowrap cursor-pointer"
+              >
+                เลือกไฟล์ตัวอย่าง (145MB)
+              </button>
+            </div>
+          </div>
+
+          {/* Submit Action Buttons */}
+          <div className="pt-3 border-t border-gray-100 flex items-center justify-end space-x-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+            >
+              ยกเลิก
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all hover:opacity-90 active:scale-95 inline-flex items-center space-x-1.5 cursor-pointer"
+              style={{ backgroundColor: '#ef6c00' }}
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>ส่งตรวจงาน (อัปเดตสถานะออโต้)</span>
+            </button>
+          </div>
+
+        </form>
+
+      </div>
+    </div>
+  );
+};
