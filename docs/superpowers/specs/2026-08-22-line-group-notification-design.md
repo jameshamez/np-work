@@ -153,7 +153,7 @@ LINE นับข้อความที่ส่งเข้ากลุ่ม
 |---|---|---|
 | `id` | `boolean primary key default true` + `check (id)` | ล็อกให้มีได้แถวเดียว |
 | `enabled` | `boolean not null default false` | สวิตช์ใหญ่ เปิด/ปิดการส่ง LINE ทั้งระบบ |
-| `monthly_cap` | `integer not null default 250` | เพดานจำนวนข้อความต่อเดือน กันโควตาบาน |
+| `monthly_cap` | `integer not null default 250` | เพดาน **จำนวนข้อความ** ต่อเดือน (ไม่ใช่จำนวนโควตา — LINE หักโควตา = ข้อความ × จำนวนสมาชิกในกลุ่ม ตั้งค่าเป็น `โควตาที่ได้ ÷ จำนวนสมาชิก`) |
 | `updated_at` | `timestamptz` | |
 
 `group_id` และ Channel Access Token **ไม่เก็บใน DB** — อยู่ใน Edge Function secrets
@@ -170,19 +170,34 @@ LINE นับข้อความที่ส่งเข้ากลุ่ม
 | `last_error` | `text` | |
 | `dedupe_key` | `text unique` | กันส่งซ้ำ เช่น `digest:2026-08-22` |
 | `created_at` / `sent_at` | `timestamptz` | |
+| `claimed_at` | `timestamptz` | เวลาที่ถูกเคลมไปส่งครั้งล่าสุด — ตัวจองแถวจริง (ดูด้านล่าง) |
 
 index: `(status, created_at)` สำหรับ cron ที่มากวาด
 
 **RLS**
 - `select` — admin / super_admin เท่านั้น (ไว้ดูหน้าสถานะ)
-- `insert` — admin / super_admin เท่านั้น (สำหรับประกาศและปุ่มทดสอบ)
+- `insert` — admin / super_admin เท่านั้น **สำหรับ client ที่เขียนตรง** (ประกาศและปุ่มทดสอบ)
 - `update` — ไม่เปิดให้ client เลย (Edge Function ใช้ service role)
+
+> **แก้จากสเปกเดิม (พบตอน review รอบสุดท้าย):** ประโยค "insert — admin เท่านั้น"
+> ข้างบนเป็นจริงเฉพาะเส้นทางที่ client เขียนลง `line_outbox` ตรง ๆ
+> **trigger ในหัวข้อถัดไปเป็น `security definer`** การ insert ของมันจึงรันในนามเจ้าของ
+> ตารางและ **ข้าม policy นี้ไปทั้งดุ้น** ขณะที่ policy `notifications_insert_task_scope`
+> เปิดให้ผู้ใช้ที่ `approved` แล้วสร้างแถว `notifications` ของงานที่ตัวเองแก้ได้
+> ผลลัพธ์คือ ผู้ใช้ทั่วไป insert แถว `type = 'returned'` เองแล้วยิงข้อความที่ตัวเองแต่ง
+> เข้ากลุ่ม LINE ได้ วนซ้ำได้จนชนเพดาน `monthly_cap`
+>
+> ดังนั้น **trigger ต้องตรวจ "ผู้ลงมือ" ด้วยตัวเองที่หัวฟังก์ชัน** ห้ามพึ่ง RLS อย่างเดียว
+> (`app_is_admin()` อ่าน `auth.uid()` จาก JWT ซึ่ง `security definer` ไม่ได้เปลี่ยน
+> จึงใช้ได้ทั้งตอนถูกเรียกผ่าน `app_change_task_status()` และตอนถูก insert ตรง ๆ)
+> และเสริมด่านสำรองที่ policy `notifications_insert_task_scope` ด้วยเงื่อนไข
+> `type <> 'returned'` — เส้นทางที่ถูกต้องไม่เสียหาย เพราะตีกลับงานได้เฉพาะ admin อยู่แล้ว
 
 **Trigger: งานถูกตีกลับ**
 
 ```
 after insert on notifications
-when new.type = 'returned'
+when new.type = 'returned' and app_is_admin()   -- ต้องตรวจผู้ลงมือด้วย ดูกล่องข้างบน
   -> insert into line_outbox (kind, message, dedupe_key)
      values ('returned', <ข้อความ>, 'returned:' || new.id)
 ```
@@ -191,10 +206,14 @@ when new.type = 'returned'
 (`db/02_views_functions.sql:229` มีเงื่อนไข `assigned_to_user_id <> v_actor.id`)
 กลุ่มจึงไม่ได้รับแจ้งเตือน — ยอมรับได้ เพราะคนที่ต้องรู้คือคนเดียวกับคนที่กดเอง
 
-**ฟังก์ชัน `app_build_line_digest()`** — คืนค่า `text` ประกอบจาก:
-- งานเลยกำหนด: `status <> 'approved' and deadline_at < now()`
-- งานค้างอัปเดต: `status <> 'approved' and deadline_at >= now() and last_updated_at < now() - interval '4 hours'`
-- งานรอตรวจ: `status = 'pending_review'`
+**ฟังก์ชัน `app_build_line_digest()`** — คืนค่า `text` ประกอบจาก
+(ทุกหมวดต้องมี `is_draft = false` ทั้งคิวรีที่แสดงรายการและคิวรีที่นับจำนวน —
+งานร่างคือการ์ดที่ยังเขียนไม่เสร็จ ไม่ควรถูกป่าวประกาศทั้งกลุ่ม และวันที่มีแต่ร่างค้าง
+ต้องคืน `null` ไม่ใช่ส่งข้อความทิ้งโควตา ทางแจ้งเตือนอื่นกันร่างไว้หมดแล้ว เช่น
+`v_tasks_needing_alert`):
+- งานเลยกำหนด: `status <> 'approved' and deadline_at < now() and is_draft = false`
+- งานค้างอัปเดต: `status <> 'approved' and is_draft = false and deadline_at >= now() and last_updated_at < now() - interval '4 hours'`
+- งานรอตรวจ: `status = 'pending_review' and is_draft = false`
 
 เงื่อนไข `deadline_at >= now()` ในหมวด "ค้างอัปเดต" กันไม่ให้งานที่เลยกำหนดไปแล้วโผล่ซ้ำสองหมวด
 ในข้อความเดียวกัน (งานเลยกำหนดที่ไม่มีใครแตะต่อเนื่องก็ค้างอัปเดตเกิน 4 ชม. ไปด้วยเสมออยู่แล้ว
@@ -232,7 +251,8 @@ when new.type = 'returned'
 1. ตรวจสิทธิ์ผู้เรียก — ต้องมาจาก Database Webhook หรือ cron ที่ถือ service role
 2. อ่าน `line_config` — ถ้า `enabled = false` ให้จบทันที ไม่ส่ง
 3. ดึงแถว `status = 'pending' or (status = 'failed' and attempts < 5)`
-   ด้วย `for update skip locked` (กันสองรอบทำงานชนกัน) ครั้งละไม่เกิน 20 แถว
+   ครั้งละไม่เกิน 20 แถว **และตั้ง `claimed_at = now()` ในคำสั่ง `UPDATE` เดียวกับที่บวก
+   `attempts`** โดยเงื่อนไขการดึงต้องมี `claimed_at is null or claimed_at < now() - interval '5 minutes'` ด้วย
 4. เช็กเพดาน — นับ `sent` ของเดือนปัจจุบัน ถ้า `>= monthly_cap` ให้หยุด
    และเขียน `last_error = 'ถึงเพดานข้อความรายเดือน'` (ไม่เงียบหาย)
 5. `POST https://api.line.me/v2/bot/message/push` ทีละแถว
@@ -240,13 +260,31 @@ when new.type = 'returned'
 6. อัปเดตผลกลับ: สำเร็จ → `sent` + `sent_at`; ไม่สำเร็จ → `failed`, `attempts + 1`,
    เก็บ status code + body ลง `last_error`
 
+> **แก้จากสเปกเดิม (พบตอน review รอบสุดท้าย) — `for update skip locked` จองแถวไม่อยู่:**
+> ล็อกของ `for update skip locked` มีอายุแค่ในทรานแซกชันของ RPC ตัวเอง ซึ่ง PostgREST
+> commit ทิ้งทันทีที่ฟังก์ชันคืนค่า ทั้งที่ Edge Function ยังรอ LINE ตอบอยู่ แถวเดิมจึงถูก
+> เคลมซ้ำได้ในเสี้ยววินาทีถัดมา = กลุ่มได้ข้อความซ้ำและเสียโควตาซ้ำ
+> ไม่ใช่กรณีหายาก: `line_daily_digest` (`0 1 * * *`) กับ `line_retry_sweep`
+> (`*/15 * * * *`) ยิงในนาทีเดียวกันทุกวัน จึงต้องมีคอลัมน์ `claimed_at` เป็นตัวจองจริง
+> หน้าต่าง 5 นาทีมีไว้ให้แถวของรอบที่ตายกลางคันกลับมาเคลมได้ใหม่
+
 **การจัดการข้อผิดพลาด**
 
 | กรณี | ทำอย่างไร |
 |---|---|
-| 429 (โควตาหมด) / 403 | `failed` และ **ไม่ลองใหม่** — ลองไปก็ไม่ผ่าน |
+| 2xx | `sent` + `sent_at` |
+| **409 (`X-Line-Retry-Key` ซ้ำ)** | **`sent` + `sent_at`** — LINE บอกว่าเคยรับข้อความนี้ไปแล้ว คือ "ส่งถึงกลุ่มแล้ว" ไม่ใช่ความล้มเหลว เขียนหมายเหตุลง `last_error` ไว้ให้เห็นว่ามาทางนี้ |
+| 429 (โควตาหมด) / 403 / 4xx อื่น | `failed` และ **ไม่ลองใหม่** — ลองไปก็ไม่ผ่าน |
 | 5xx, timeout, เน็ตหลุด | `failed` แล้วให้ cron 15 นาทีมาลองใหม่ สูงสุด 5 ครั้ง |
 | ครบ 5 ครั้งแล้วยังไม่ผ่าน | หยุด และให้เห็นในหน้าสถานะฝั่งแอดมิน |
+
+> **แก้จากสเปกเดิม (พบตอน review รอบสุดท้าย) — สเปกเดิมสั่งใช้ `X-Line-Retry-Key`
+> เป็นเกราะกันข้อความซ้ำ แต่ไม่ได้บอกว่าต้องทำอย่างไรกับคำตอบ 409 ที่ LINE คืนมาเมื่อ key
+> ซ้ำ** โค้ดจึงไปเข้ากิ่ง "4xx = ไม่ลองใหม่" แล้วบันทึกแถวที่ **ส่งถึงกลุ่มไปแล้วจริง ๆ**
+> เป็นความล้มเหลวถาวร แยกไม่ออกจากความล้มเหลวของจริงในหน้าแอดมิน — ผิดกติกา
+> "ห้ามเงียบ ห้ามหลอก" ตรง ๆ และเกิดเป็นประจำทุกเช้าตอนสรุปรายวัน
+> ตัวตัดสิน 409 ต้องแยกออกจากคำถาม "ควรลองใหม่ไหม" (คำตอบคือไม่ ทั้ง 409 และ 4xx อื่น)
+> เพราะคำถามจริงคือ "ข้อความถึงกลุ่มแล้วหรือยัง"
 
 ### 6.3 ฝั่งแอป (React)
 

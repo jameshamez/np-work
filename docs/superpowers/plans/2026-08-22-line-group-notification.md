@@ -1224,6 +1224,32 @@ git commit -m "feat(edge): เพิ่ม Edge Function line-dispatch สำห
 3. กลับไปดูที่ webhook.site จะเห็น JSON — คัดลอกค่า `events[0].source.groupId` (ขึ้นต้นด้วย `C`)
 4. **ปิด Use webhook กลับ** — ไม่ต้องใช้อีกแล้ว
 
+- [ ] **Step 2.5: เตรียม Supabase CLI**
+
+repo นี้ไม่มี `supabase/config.toml` (ไม่ได้ใช้ local dev stack) จึงต้องระบุ
+`--project-ref` ทุกครั้ง หรือ `supabase link` ก่อน ทำครั้งเดียวจบ:
+
+```bash
+# 1. ติดตั้ง CLI (macOS)
+brew install supabase/tap/supabase
+supabase --version
+
+# 2. ล็อกอิน (เปิดเบราว์เซอร์ให้กดอนุญาต)
+supabase login
+
+# 3. ผูกโฟลเดอร์นี้กับโปรเจกต์ (จะถามรหัสผ่านฐานข้อมูล)
+#    [PROJECT_REF] ดูได้ที่ Dashboard > Project Settings > General > Reference ID
+supabase link --project-ref [PROJECT_REF]
+```
+
+> ถ้าไม่อยากรัน `supabase link` ก็ได้ แต่ต้องใส่ `--project-ref [PROJECT_REF]`
+> ต่อท้ายคำสั่ง `secrets set` และ `functions deploy` ใน Step 3 ทุกคำสั่ง
+
+พร้อมกันนี้ให้เปิด extension ที่ Step 5 ต้องใช้ไว้ก่อน — ทำที่
+**Dashboard > Database > Extensions** เปิด `pg_cron` และ `pg_net`
+(อย่าใช้ `create extension` จาก SQL Editor เป็นทางหลัก โปรเจกต์ Supabase
+รุ่นปัจจุบันมักติด permission error ที่ตรงนั้น)
+
 - [ ] **Step 3: ตั้ง secrets แล้ว deploy Edge Function**
 
 สุ่มค่า `LINE_DISPATCH_SECRET` ขึ้นมาเอง:
@@ -1235,13 +1261,15 @@ openssl rand -hex 32
 ตั้งค่า (แทนที่ค่าในวงเล็บเหลี่ยมด้วยของจริง):
 
 ```bash
-supabase secrets set \
+supabase secrets set --project-ref [PROJECT_REF] \
   LINE_CHANNEL_ACCESS_TOKEN='[token จาก Step 1]' \
   LINE_GROUP_ID='[groupId จาก Step 2]' \
   LINE_DISPATCH_SECRET='[ค่าที่สุ่มได้]'
 
-supabase functions deploy line-dispatch --no-verify-jwt
+supabase functions deploy line-dispatch --project-ref [PROJECT_REF] --no-verify-jwt
 ```
+
+> `--project-ref` ตัดออกได้ถ้ารัน `supabase link` ไปแล้วใน Step 2.5
 
 - [ ] **Step 4: ตั้ง Database Webhook**
 
@@ -1282,6 +1310,26 @@ create extension if not exists pg_net;
 -- เก็บ secret ครั้งแรกครั้งเดียว (รันซ้ำจะ error ว่าชื่อซ้ำ ให้ข้ามได้)
 -- select vault.create_secret('[ค่า LINE_DISPATCH_SECRET]', 'line_dispatch_secret');
 
+-- -----------------------------------------------------------------------------
+-- ต้องมี secret ใน Vault ก่อน ไม่งั้นห้ามติดตั้ง job กวาดคิว
+--
+-- ถ้าไม่มี ค่า subquery จะเป็น null -> header x-line-dispatch-secret เป็น null ->
+-- Edge Function ตอบ 401 ทุกครั้ง แต่ตัว net.http_post เองสำเร็จ cron.job_run_details
+-- จึงขึ้นว่า "succeeded" ทุกรอบ = ตาข่ายกันข้อความตกหายตายสนิทโดยไม่มีใครรู้
+-- จึงต้องพังเสียงดังตั้งแต่ตอนติดตั้ง ไม่ใช่เงียบไปตลอดกาล
+-- -----------------------------------------------------------------------------
+do $$
+begin
+  if coalesce(btrim((select decrypted_secret
+                       from vault.decrypted_secrets
+                      where name = 'line_dispatch_secret')), '') = '' then
+    raise exception 'ไม่พบ secret ชื่อ line_dispatch_secret ใน Vault — job กวาดคิวจะยิง 401 เงียบ ๆ ตลอดไป'
+      using errcode = 'invalid_parameter_value',
+            hint = 'รัน select vault.create_secret(''<ค่า LINE_DISPATCH_SECRET เดียวกับใน Edge Function secrets>'', ''line_dispatch_secret''); ก่อน แล้วค่อยรันไฟล์นี้ใหม่';
+  end if;
+end
+$$;
+
 -- ลบตารางเวลาเดิมก่อน เพื่อให้รันไฟล์ซ้ำได้
 select cron.unschedule('line_daily_digest') where exists (
   select 1 from cron.job where jobname = 'line_daily_digest');
@@ -1319,13 +1367,22 @@ select cron.schedule(
 );
 ```
 
-- [ ] **Step 6: ตั้งค่า `app_url` และเปิดสวิตช์**
+- [ ] **Step 6: ตั้งค่า `app_url`, `monthly_cap` และเปิดสวิตช์**
+
+⚠️ `monthly_cap` นับเป็น **"จำนวนข้อความ"** ไม่ใช่ **"จำนวนโควตา"** ที่หน้า
+LINE Official Account Manager แสดง — LINE หักโควตา = จำนวนข้อความ × จำนวนสมาชิกในกลุ่ม
+ค่าตั้งต้น `250` กับกลุ่ม 10 คน = **2,500 หน่วยโควตา** ซึ่งเกินแผนฟรี (200 หน่วย) ไป 12 เท่า
+
+**สูตรที่ต้องใช้: `monthly_cap = โควตาที่ LINE ให้ต่อเดือน ÷ จำนวนสมาชิกในกลุ่ม`**
+(เช่น แผนฟรี 200 หน่วย กลุ่ม 10 คน → `monthly_cap = 20`) นับสมาชิกให้ครบรวมบัญชี OA
+และเผื่อคนเข้ากลุ่มเพิ่มด้วย ถ้ามีคนเข้ากลุ่มใหม่ต้องกลับมาลดค่านี้
 
 ```sql
 update line_config
-   set app_url = 'https://[URL ของระบบคุณ]',
-       enabled = true,
-       updated_at = now();
+   set app_url     = 'https://[URL ของระบบคุณ]',
+       monthly_cap = [โควตา LINE ต่อเดือน ÷ จำนวนสมาชิกในกลุ่ม],
+       enabled     = true,
+       updated_at  = now();
 ```
 
 - [ ] **Step 7: ทดสอบกับกลุ่มทดสอบจริง 6 ข้อ**
@@ -1926,10 +1983,28 @@ grep -n "lineNotifyEnabled\|isLineActive" src/components/AdminApprovalView.tsx
 - [ ] **Step 6: ตรวจว่าไม่มีของเก่าหลงเหลือ**
 
 ```bash
-grep -rn "lineNotifyToken\|lineNotifyEnabled\|line_notify_token\|line_notify_sent\|LINE Notify" src/
+grep -rn "lineNotifyToken\|lineNotifyEnabled\|line_notify_token\|LINE Notify" src/
 ```
 
 Expected: ไม่เจออะไรเลย
+
+```bash
+grep -rn "line_notify_sent" src/
+```
+
+Expected: เจอที่เดียวคือ `src/types.ts` (สมาชิกของ union `Notification['type']`)
+
+> **แก้จากแผนเดิม:** ตอนแรกเขียนไว้ว่าต้องไม่เจอ `line_notify_sent` เลย ซึ่งเป็นไปไม่ได้
+> ค่า `'line_notify_sent'` ยังอยู่ใน enum `notification_type` ของฐานข้อมูล และแถวเก่า
+> ที่สร้างไว้ก่อนหน้านี้ (รวมถึงใน `04_seed.sql`) ยังใช้ค่านี้อยู่ — PostgreSQL ลบค่า
+> enum ไม่ได้ ถ้าตัดสมาชิกนี้ออกจาก union ฝั่ง TypeScript แถวเก่าจะ map ไม่ลง type
+> สิ่งที่ต้องตรวจจริง ๆ คือ **ไม่มีโค้ดไหน "สร้าง" แถว `line_notify_sent` ใหม่**:
+>
+> ```bash
+> grep -rn "type: 'line_notify_sent'" src/
+> ```
+>
+> Expected: ไม่เจออะไรเลย
 
 ```bash
 npm run lint && npm test

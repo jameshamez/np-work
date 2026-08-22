@@ -43,10 +43,47 @@ psql "postgresql://postgres:[รหัสผ่าน]@db.[project-ref].supabase
   -f db/02_views_functions.sql \
   -f db/03_rls.sql \
   -f db/04_seed.sql \
-  -f db/05_auth.sql
+  -f db/05_auth.sql \
+  -f db/06_patch_notifications.sql \
+  -f db/07_line_integration.sql \
+  -f db/09_line_cleanup.sql
 ```
 
 > ถ้าใช้งานจริง (ไม่ต้องการข้อมูลตัวอย่าง) ให้ข้าม `04_seed.sql`
+
+> **ห้ามลืม `06` / `07`** — ถ้ารันแค่ถึง `05` ระบบจะไม่มีตาราง `line_config` และ
+> `line_outbox` เลย หน้าเว็บจะอ่านค่าไม่ได้แล้วแสดงสวิตช์ LINE เป็น "ปิด" ตลอดไป
+> โดยไม่มี error ให้เห็น
+
+> **`08_line_schedule.sql` ไม่ได้อยู่ในคำสั่งข้างบนโดยตั้งใจ** — ต้องแก้ `[PROJECT_REF]`
+> ในไฟล์และเก็บ secret ลง Vault ก่อน (ดูหัวไฟล์) ถ้ายังไม่ได้ตั้ง secret ไฟล์จะหยุด
+> พร้อมข้อความบอกทันที
+
+> **`09_line_cleanup.sql` รันได้ก็ต่อเมื่อ deploy แอปเวอร์ชันใหม่ไปแล้ว** เพราะมันลบ
+> คอลัมน์ `line_notify_token` / `line_notify_enabled` ที่แอปเวอร์ชันเก่ายังอ่านอยู่
+> (ติดตั้งใหม่ทั้งระบบรันต่อได้เลย เพราะยังไม่มีแอปเวอร์ชันเก่าให้พัง)
+
+> ⚠️ **รัน `03_rls.sql` เมื่อไหร่ ต้องรัน `07_line_integration.sql` ต่อท้ายทุกครั้ง**
+>
+> `03` มีคำสั่ง `grant execute on all functions in schema public to authenticated`
+> แบบเหวี่ยงแห ซึ่งคืนสิทธิ์ให้ฟังก์ชันที่ `07` ตั้งใจปิดไว้ (`app_claim_line_outbox`,
+> `app_build_line_digest`, `app_enqueue_line_digest`) ตัวที่อันตรายที่สุดคือ
+> `app_claim_line_outbox` — เป็น `security definer` คืนเนื้อความทุกข้อความที่รอส่ง
+> และบวก `attempts` ให้ทุกแถวที่ดึงมา ผู้ใช้ที่ล็อกอินคนไหนก็ได้เรียกผ่าน PostgREST
+> 5 ครั้งก็ดันทุกแถวเลยเพดาน = ช่องทางแจ้งเตือน LINE เงียบทั้งระบบ
+>
+> ท้ายไฟล์ `03` มีบล็อก `do $$ ... $$` ปิดคืนให้อัตโนมัติแล้ว (ข้ามเองถ้ายังไม่ได้รัน `07`)
+> แต่การรัน `07` ต่อท้ายเป็นการยืนยันที่แน่นอนที่สุด ตรวจผลได้ด้วย
+>
+> ```sql
+> select has_function_privilege('authenticated', 'app_claim_line_outbox(integer)', 'execute');
+> -- ต้องได้ false
+> ```
+>
+> หมายเหตุ: ปัจจุบัน `03_rls.sql` ยัง**รันซ้ำบนฐานข้อมูลเดิมตรง ๆ ไม่ได้** — มันจะหยุดที่
+> `create trigger users_guard_privileged_columns` ว่ามีอยู่แล้ว และเพราะทั้งไฟล์อยู่ใน
+> ทรานแซกชันเดียว ผลคือไม่มีอะไรเปลี่ยนเลย ถ้าจำเป็นต้องรันซ้ำจริง ให้ `drop trigger`
+> และ `drop policy` ตัวที่ซ้ำก่อน แล้วอย่าลืมรัน `07` ต่อท้ายตามข้างบน
 
 ### 3. ตั้งค่าฝั่งแอป
 
