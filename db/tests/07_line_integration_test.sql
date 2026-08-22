@@ -100,7 +100,24 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
--- เคส 6 : RLS — ผู้ใช้ทั่วไปแตะ line_outbox ไม่ได้เลย
+-- เคส 6 : แถวที่ค้าง pending แต่ attempts ครบ 5 แล้วต้องหยุดเช่นกัน
+--         (จำลอง worker ตายกลางคัน: เคลมไปแล้วบวก attempts แต่ตายก่อนอัปเดต
+--         สถานะกลับ แถวจึงค้างที่ pending ตลอดไป ถ้าไม่เช็กเพดานที่นี่ด้วย
+--         จะเคลม-ยิง LINE ซ้ำไม่รู้จบ)
+-- ---------------------------------------------------------------------------
+insert into line_outbox (kind, message, status, attempts, dedupe_key)
+values ('test', 'ค้าง pending เพราะ worker ตายกลางคัน', 'pending', 5, 'test:pending ค้างครบโควตา');
+
+do $$
+declare
+  v_count integer;
+begin
+  select count(*) into v_count from app_claim_line_outbox(20);
+  assert v_count = 0, format('เคส 6 ล้มเหลว: แถว pending ที่ attempts = 5 ต้องไม่ถูกดึงอีก แต่ดึงได้ %s แถว', v_count);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- เคส 7 : RLS — ผู้ใช้ทั่วไปแตะ line_outbox ไม่ได้เลย
 -- ---------------------------------------------------------------------------
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b2"}';
@@ -109,7 +126,7 @@ do $$
 begin
   begin
     insert into line_outbox (kind, message) values ('broadcast', 'ผู้ใช้ทั่วไปไม่ควรส่งได้');
-    raise exception 'เคส 6 ล้มเหลว: ผู้ใช้ทั่วไปไม่ควร insert line_outbox ได้';
+    raise exception 'เคส 7 ล้มเหลว: ผู้ใช้ทั่วไปไม่ควร insert line_outbox ได้';
   exception when insufficient_privilege then
     null;  -- ถูกต้องแล้ว
   end;
@@ -118,13 +135,13 @@ end $$;
 do $$
 begin
   assert (select count(*) from line_outbox) = 0,
-    'เคส 6 ล้มเหลว: ผู้ใช้ทั่วไปไม่ควรเห็นแถวใน line_outbox เลย';
+    'เคส 7 ล้มเหลว: ผู้ใช้ทั่วไปไม่ควรเห็นแถวใน line_outbox เลย';
   assert (select count(*) from line_config) = 0,
-    'เคส 6 ล้มเหลว: ผู้ใช้ทั่วไปไม่ควรเห็น line_config';
+    'เคส 7 ล้มเหลว: ผู้ใช้ทั่วไปไม่ควรเห็น line_config';
 end $$;
 
 -- ---------------------------------------------------------------------------
--- เคส 7 : RLS — แอดมินเห็นและเพิ่มแถวได้
+-- เคส 8 : RLS — แอดมินเห็นและเพิ่มแถวได้
 -- ---------------------------------------------------------------------------
 set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b1"}';
 
@@ -133,9 +150,9 @@ insert into line_outbox (kind, message) values ('broadcast', 'ประกาศ
 do $$
 begin
   assert (select count(*) from line_outbox where kind = 'broadcast') = 1,
-    'เคส 7 ล้มเหลว: แอดมินต้อง insert line_outbox ได้';
+    'เคส 8 ล้มเหลว: แอดมินต้อง insert line_outbox ได้';
   assert (select count(*) from line_config) = 1,
-    'เคส 7 ล้มเหลว: แอดมินต้องเห็น line_config';
+    'เคส 8 ล้มเหลว: แอดมินต้องเห็น line_config';
 end $$;
 
 reset role;

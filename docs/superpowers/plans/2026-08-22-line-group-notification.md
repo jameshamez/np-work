@@ -301,6 +301,11 @@ create index if not exists line_outbox_sent_idx
 --
 -- บวก attempts ตั้งแต่ตอนดึง (ไม่ใช่ตอนส่งเสร็จ) เพื่อว่าถ้า Edge Function
 -- ตายกลางคัน แถวนั้นก็ยังนับครั้งไปแล้ว ไม่วนลองไม่รู้จบ
+--
+-- เพดาน attempts < 5 ต้องครอบทั้งสถานะ pending และ failed เพราะแถวที่ค้าง
+-- pending ก็อาจเป็นแถวที่เคยถูกเคลมไปแล้ว (attempts บวกแล้ว) แต่ Edge Function
+-- ตายก่อนอัปเดตสถานะกลับ — ถ้าเช็กเพดานเฉพาะกิ่ง failed แถวแบบนี้จะถูกเคลม
+-- (และยิง LINE จริง กินโควตา) ซ้ำไม่รู้จบ
 -- -----------------------------------------------------------------------------
 create or replace function app_claim_line_outbox(p_limit integer default 20)
 returns setof line_outbox
@@ -308,8 +313,8 @@ language sql security definer set search_path = public as $$
   with claimed as (
     select id
       from line_outbox
-     where status = 'pending'
-        or (status = 'failed' and attempts < 5)
+     where (status = 'pending' or status = 'failed')
+       and attempts < 5
      order by created_at
        for update skip locked
      limit p_limit
