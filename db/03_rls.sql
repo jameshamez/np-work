@@ -206,10 +206,16 @@ create policy notifications_insert_admin on notifications
 
 -- ผู้เกี่ยวข้องกับงานส่งแจ้งเตือนหากันได้ เฉพาะเรื่องที่อ้างถึงงานใบนั้นจริง ๆ
 -- (ทั้งผู้ส่งและผู้รับต้องอยู่ในวงงานเดียวกัน จึงส่งหาใครมั่ว ๆ ไม่ได้)
+--
+-- ยกเว้น type = 'returned' — มีแต่ admin เท่านั้นที่ตีกลับงานได้ และแจ้งเตือน
+-- ชนิดนี้ยังเป็นตัวจุดชนวน trg_notification_to_line_outbox ที่ยิงข้อความเข้ากลุ่ม
+-- LINE ด้วย จึงห้ามผู้ใช้ทั่วไปสร้างเองเด็ดขาด (ด่านหลักอยู่ใน trigger เอง
+-- ที่ db/07_line_integration.sql ตรงนี้เป็นด่านสำรอง)
 create policy notifications_insert_task_scope on notifications
   for insert with check (
     app_is_approved()
     and task_id is not null
+    and type <> 'returned'
     and app_can_edit_task(task_id, app_current_user_id())
     and app_can_edit_task(task_id, recipient_user_id)
   );
@@ -245,6 +251,29 @@ begin
   -- จึงเข้าเงื่อนไข policy users_insert_self_registration ได้พอดี
   if exists (select 1 from pg_roles where rolname = 'anon') then
     revoke all on all tables in schema public from anon;
+  end if;
+end
+$$;
+
+-- -----------------------------------------------------------------------------
+-- คืน revoke ของ 07_line_integration.sql ให้อัตโนมัติ
+--
+-- `grant execute on all functions in schema public to authenticated` ด้านบนเป็น
+-- คำสั่งเหวี่ยงแห มันคืนสิทธิ์ให้ฟังก์ชัน LINE ทั้งสามตัวที่ 07 ตั้งใจ revoke ทิ้ง
+-- และ README บอกให้รันไฟล์เก่าซ้ำเวลามีอัปเดต การรัน 03 ซ้ำจึงเปิดรูจริง ๆ
+--
+-- ที่อันตรายที่สุดคือ app_claim_line_outbox : เป็น security definer คืน "เนื้อความ
+-- ทุกข้อความที่รอส่ง" และบวก attempts ให้ทุกแถวที่ดึงมา ผู้ใช้ที่ล็อกอินคนไหนก็ได้
+-- (รวมถึงคนที่ยัง pending — การ grant ระดับ role ไม่ผ่าน RLS) เรียกผ่าน PostgREST
+-- 5 ครั้งก็ดันทุกแถวเลยเพดาน attempts = ช่องทางแจ้งเตือน LINE เงียบทั้งระบบ
+--
+-- ตรวจด้วย to_regprocedure ก่อน เพื่อให้รัน 03 ได้ตามปกติบนฐานข้อมูลที่ยังไม่ได้รัน 07
+-- -----------------------------------------------------------------------------
+do $$
+begin
+  if to_regprocedure('app_claim_line_outbox(integer)') is not null then
+    revoke execute on function app_claim_line_outbox(integer), app_build_line_digest(),
+      app_enqueue_line_digest() from public, anon, authenticated;
   end if;
 end
 $$;

@@ -9,7 +9,14 @@
  * deploy ด้วย --no-verify-jwt แล้วใช้ secret ตัวนี้คุมสิทธิ์แทน
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { buildPushBody, LINE_PUSH_URL, shouldRetry } from './lib.ts';
+import { buildPushBody, classifyPushResult, LINE_PUSH_URL, MAX_ATTEMPTS } from './lib.ts';
+
+/**
+ * ค่า attempts ที่เขียนทับเมื่อ "เลิกลองแล้ว"
+ * ต้องไม่น้อยกว่าเพดานของ app_claim_line_outbox (attempts < MAX_ATTEMPTS)
+ * มิฉะนั้นแถวจะถูกเคลมกลับมายิงซ้ำทั้งที่รู้อยู่แล้วว่าไม่ผ่าน
+ */
+const GIVE_UP_ATTEMPTS = MAX_ATTEMPTS;
 
 const token = Deno.env.get('LINE_CHANNEL_ACCESS_TOKEN') ?? '';
 const groupId = Deno.env.get('LINE_GROUP_ID') ?? '';
@@ -118,10 +125,23 @@ Deno.serve(async (req: Request) => {
       detail = e instanceof Error ? e.message : String(e);
     }
 
-    if (status >= 200 && status < 300) {
+    const outcome = classifyPushResult(status);
+
+    if (outcome === 'sent' || outcome === 'deduped') {
+      // 409 = LINE เคยรับ X-Line-Retry-Key นี้ไปแล้ว แปลว่าข้อความถึงกลุ่มแล้ว
+      // ต้องบันทึกเป็น sent ไม่ใช่ failed — ไม่งั้นข้อความที่ส่งถึงจริงจะกลายเป็น
+      // ความล้มเหลวถาวรที่แยกไม่ออกจากของจริงในหน้าแอดมิน และเกิดประจำทุกเช้า
+      // ตอนสรุปรายวัน (digest ยิงตอน 01:00 UTC ชนกับรอบกวาดพอดี)
+      // แต่ยังเก็บหมายเหตุไว้ใน last_error ให้เห็นว่าเส้นทางนี้ไม่ใช่เส้นทางปกติ
+      const dedupeNote =
+        outcome === 'deduped'
+          ? `HTTP ${status}: LINE แจ้งว่าข้อความนี้ถูกส่งไปแล้ว (X-Line-Retry-Key ซ้ำ) ` +
+            'จึงนับเป็นส่งสำเร็จและไม่ยิงซ้ำ'
+          : null;
+
       const { error: markError } = await db
         .from('line_outbox')
-        .update({ status: 'sent', sent_at: new Date().toISOString(), last_error: null })
+        .update({ status: 'sent', sent_at: new Date().toISOString(), last_error: dedupeNote })
         .eq('id', row.id);
       if (markError) {
         // อันตรายที่สุดในไฟล์นี้: ส่งเข้า LINE ไปแล้วแต่บันทึกไม่ลง
@@ -130,14 +150,14 @@ Deno.serve(async (req: Request) => {
       }
       sent++;
     } else {
-      const note = shouldRetry(status) ? 'จะลองใหม่' : 'ไม่ลองใหม่ ต้องแก้ที่ต้นเหตุ';
+      const note = outcome === 'retry' ? 'จะลองใหม่' : 'ไม่ลองใหม่ ต้องแก้ที่ต้นเหตุ';
       const { error: markError } = await db
         .from('line_outbox')
         .update({
           status: 'failed',
           last_error: `HTTP ${status} (${note}): ${detail}`,
           // ปิดโอกาสลองใหม่ทันทีสำหรับ error ที่ลองไปก็ไม่ผ่าน
-          ...(shouldRetry(status) ? {} : { attempts: 99 }),
+          ...(outcome === 'retry' ? {} : { attempts: GIVE_UP_ATTEMPTS }),
         })
         .eq('id', row.id);
       if (markError) {

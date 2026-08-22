@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildPushBody, clampMessage, MAX_ATTEMPTS, shouldRetry } from './lib';
+import {
+  buildPushBody,
+  clampMessage,
+  classifyPushResult,
+  LINE_DUPLICATE_STATUS,
+  MAX_ATTEMPTS,
+  shouldRetry,
+} from './lib';
 
 describe('clampMessage', () => {
   it('ข้อความสั้นผ่านไปเหมือนเดิม', () => {
@@ -60,5 +67,36 @@ describe('shouldRetry', () => {
 describe('MAX_ATTEMPTS', () => {
   it('ต้องตรงกับเงื่อนไข attempts < 5 ใน app_claim_line_outbox', () => {
     expect(MAX_ATTEMPTS).toBe(5);
+  });
+});
+
+describe('classifyPushResult', () => {
+  it('2xx = ส่งสำเร็จ', () => {
+    expect(classifyPushResult(200)).toBe('sent');
+    expect(classifyPushResult(201)).toBe('sent');
+  });
+
+  it('409 = LINE เคยรับข้อความนี้ไปแล้ว ต้องนับเป็นส่งสำเร็จ ไม่ใช่ล้มเหลว', () => {
+    // แถวถูกยิงซ้ำด้วย X-Line-Retry-Key เดิม ข้อความถึงกลุ่มไปแล้ว
+    // ถ้าบันทึกเป็น failed แอดมินจะแยกไม่ออกจากความล้มเหลวของจริง
+    expect(classifyPushResult(LINE_DUPLICATE_STATUS)).toBe('deduped');
+    expect(LINE_DUPLICATE_STATUS).toBe(409);
+  });
+
+  it('4xx อื่น ๆ = หยุด ต้องให้คนไปแก้ต้นเหตุ', () => {
+    expect(classifyPushResult(400)).toBe('giveup');
+    expect(classifyPushResult(401)).toBe('giveup');
+    expect(classifyPushResult(403)).toBe('giveup');
+    expect(classifyPushResult(429)).toBe('giveup');
+  });
+
+  it('5xx และเน็ตหลุด = ลองใหม่', () => {
+    expect(classifyPushResult(500)).toBe('retry');
+    expect(classifyPushResult(503)).toBe('retry');
+    expect(classifyPushResult(0)).toBe('retry');
+  });
+
+  it('409 ไม่ควรลองใหม่เช่นกัน — แต่เหตุผลคนละเรื่องกับ giveup', () => {
+    expect(shouldRetry(LINE_DUPLICATE_STATUS)).toBe(false);
   });
 });

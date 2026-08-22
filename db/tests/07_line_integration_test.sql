@@ -364,6 +364,179 @@ end $$;
 
 reset role;
 
+-- ---------------------------------------------------------------------------
+-- เคส 17 : ผู้ใช้ทั่วไปสั่งให้ข้อความของตัวเองเข้าคิว LINE ไม่ได้
+--
+--   trigger บน notifications เป็น security definer จึงข้าม RLS ของ line_outbox
+--   ได้ทั้งดุ้น ถ้าไม่ตรวจ "ผู้ลงมือ" ที่หัว trigger ผู้ใช้ทั่วไปที่ insert แถว
+--   type = 'returned' เองจะยิงข้อความที่ตัวเองแต่งเข้ากลุ่ม LINE ได้เลย
+--   (ของจริงตีกลับงานได้เฉพาะ admin ตาม app_change_task_status)
+-- ---------------------------------------------------------------------------
+delete from line_outbox;
+
+insert into tasks (id, code, project_id, title, assigned_to_user_id, deadline_at)
+values ('00000000-0000-0000-0000-0000000000d2', 'TEST-LINE-ESCALATE',
+        '00000000-0000-0000-0000-0000000000c1', 'งานของผู้ใช้ทั่วไป',
+        '00000000-0000-0000-0000-0000000000a2', now() + interval '3 days');
+
+-- 17ก : ทางปกติผ่าน RLS (role authenticated)
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b2"}';
+
+do $$
+begin
+  begin
+    insert into notifications (recipient_user_id, task_id, type, title, message)
+    values ('00000000-0000-0000-0000-0000000000a2',
+            '00000000-0000-0000-0000-0000000000d2',
+            'returned', 'ประกาศปลอม', 'ข้อความที่ผู้ใช้ทั่วไปแต่งขึ้นเอง');
+  exception when insufficient_privilege then
+    null;  -- policy ปฏิเสธตั้งแต่ต้นทาง ยิ่งดี
+  end;
+end $$;
+
+reset role;
+
+do $$
+declare
+  v_count integer;
+begin
+  select count(*) into v_count from line_outbox;
+  assert v_count = 0,
+    format('เคส 17ก ล้มเหลว: ผู้ใช้ทั่วไปต้องไม่ทำให้เกิดแถวในคิว LINE แต่เกิด %s แถว', v_count);
+end $$;
+
+-- 17ข : ทางที่ข้าม RLS ไปแล้ว (จำลอง security definer path) แต่ผู้ลงมือยังเป็น
+--       ผู้ใช้ทั่วไปตาม JWT — trigger ต้องกันได้ด้วยตัวเอง ไม่พึ่ง RLS อย่างเดียว
+insert into notifications (recipient_user_id, task_id, type, title, message)
+values ('00000000-0000-0000-0000-0000000000a2',
+        '00000000-0000-0000-0000-0000000000d2',
+        'returned', 'ประกาศปลอม (ข้าม RLS)', 'ข้อความที่ผู้ใช้ทั่วไปแต่งขึ้นเอง');
+
+do $$
+declare
+  v_count integer;
+begin
+  select count(*) into v_count from line_outbox;
+  assert v_count = 0,
+    format('เคส 17ข ล้มเหลว: trigger ต้องตรวจผู้ลงมือเอง แต่มีแถวเข้าคิว %s แถว', v_count);
+end $$;
+
+-- 17ค : ทางที่ถูกต้อง — แอดมินตีกลับงาน ต้องยังเข้าคิวได้เหมือนเดิม
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b1"}';
+
+insert into notifications (recipient_user_id, task_id, type, title, message)
+values ('00000000-0000-0000-0000-0000000000a2',
+        '00000000-0000-0000-0000-0000000000d2',
+        'returned', 'งานถูกตีกลับแก้ไข', 'แอดมินตีกลับจริง');
+
+do $$
+declare
+  v_count integer;
+begin
+  select count(*) into v_count from line_outbox where kind = 'returned';
+  assert v_count = 1,
+    format('เคส 17ค ล้มเหลว: แอดมินตีกลับงานต้องเข้าคิว 1 แถว แต่ได้ %s แถว', v_count);
+end $$;
+
+do $$ begin perform set_config('request.jwt.claims', null, true); end $$;
+
+-- ---------------------------------------------------------------------------
+-- เคส 18 : การเคลมคิวต้องกันสองรอบทำงานชนกันได้จริง
+--
+--   for update skip locked ล็อกอยู่แค่ในทรานแซกชันของ RPC เอง พอ PostgREST
+--   commit แถวก็ว่างให้เคลมซ้ำได้ทันที ทั้งที่รอบแรกยังรอ LINE ตอบอยู่
+--   (line_daily_digest 0 1 * * * กับ line_retry_sweep */15 * * * * ชนกันทุกวัน)
+--   จึงต้องมี claimed_at กันไว้ และปล่อยให้เคลมใหม่ได้เมื่อพ้น 5 นาที
+--   (เผื่อ Edge Function ตายกลางคัน)
+-- ---------------------------------------------------------------------------
+delete from line_outbox;
+
+insert into line_outbox (kind, message, dedupe_key)
+values ('test', 'ทดสอบการจองคิว', 'test:การจองคิว');
+
+do $$
+declare
+  v_first  integer;
+  v_second integer;
+  v_third  integer;
+begin
+  select count(*) into v_first from app_claim_line_outbox(20);
+  assert v_first = 1, format('เคส 18 ล้มเหลว: รอบแรกต้องเคลมได้ 1 แถว แต่ได้ %s', v_first);
+
+  select count(*) into v_second from app_claim_line_outbox(20);
+  assert v_second = 0,
+    format('เคส 18 ล้มเหลว: รอบที่สองในช่วง 5 นาทีต้องเคลมไม่ได้เลย แต่เคลมได้ %s แถว', v_second);
+
+  -- จำลอง Edge Function ตายกลางคัน: ปล่อยให้ค้างเกิน 5 นาที
+  update line_outbox set claimed_at = now() - interval '6 minutes'
+   where dedupe_key = 'test:การจองคิว';
+
+  select count(*) into v_third from app_claim_line_outbox(20);
+  assert v_third = 1,
+    format('เคส 18 ล้มเหลว: พ้น 5 นาทีแล้วต้องเคลมใหม่ได้ แต่ได้ %s แถว', v_third);
+
+  assert (select attempts from line_outbox where dedupe_key = 'test:การจองคิว') = 2,
+    'เคส 18 ล้มเหลว: attempts ต้องถูกบวกทุกครั้งที่เคลมได้จริง';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- เคส 19 : งานร่าง (is_draft) ต้องไม่ถูกประกาศเข้ากลุ่ม
+--          ทางแจ้งเตือนอื่นทุกทางกันร่างไว้หมดแล้ว (v_tasks_needing_alert)
+--          ถ้าสรุปรายวันไม่กัน การ์ดที่ยังเขียนไม่เสร็จจะถูกป่าวประกาศทั้งกลุ่ม
+--          และวันที่มีแต่ร่างค้างจะเสียโควตาไปกับข้อความที่ไม่ควรส่ง
+-- ---------------------------------------------------------------------------
+delete from line_outbox;
+delete from tasks;
+
+insert into tasks (code, project_id, title, assigned_to_user_id,
+                   created_at, deadline_at, last_updated_at, status, is_draft)
+values
+  ('TEST-DRAFT-OVER', '00000000-0000-0000-0000-0000000000c1', 'ร่างงานเลยกำหนด',
+   '00000000-0000-0000-0000-0000000000a2',
+   now() - interval '10 days', now() - interval '2 days', now(), 'pending_submission', true),
+  ('TEST-DRAFT-STALE', '00000000-0000-0000-0000-0000000000c1', 'ร่างงานค้างอัปเดต',
+   '00000000-0000-0000-0000-0000000000a2',
+   now() - interval '2 days', now() + interval '5 days',
+   now() - interval '6 hours', 'pending_submission', true),
+  ('TEST-DRAFT-REVIEW', '00000000-0000-0000-0000-0000000000c1', 'ร่างงานรอตรวจ',
+   '00000000-0000-0000-0000-0000000000a2',
+   now() - interval '1 day', now() + interval '5 days', now(), 'pending_review', true);
+
+do $$
+begin
+  assert app_build_line_digest() is null,
+    format('เคส 19 ล้มเหลว: มีแต่งานร่างต้องคืน null แต่ได้ข้อความว่า %s',
+           app_build_line_digest());
+  assert app_enqueue_line_digest() is null,
+    'เคส 19 ล้มเหลว: มีแต่งานร่างต้องไม่สร้างแถวในคิว';
+end $$;
+
+-- เพิ่มงานจริง 1 ใบ — ต้องนับเฉพาะใบนี้ ร่างต้องไม่โผล่และต้องไม่ถูกนับ
+insert into tasks (code, project_id, title, assigned_to_user_id,
+                   created_at, deadline_at, last_updated_at, status)
+values ('TEST-REAL-OVER', '00000000-0000-0000-0000-0000000000c1', 'งานจริงเลยกำหนด',
+        '00000000-0000-0000-0000-0000000000a2',
+        now() - interval '10 days', now() - interval '2 days', now(), 'pending_submission');
+
+do $$
+declare
+  v_msg text;
+begin
+  v_msg := app_build_line_digest();
+  assert v_msg is not null, 'เคส 19 ล้มเหลว: มีงานจริงค้างต้องได้ข้อความสรุป';
+  assert v_msg like '%TEST-REAL-OVER%',
+    'เคส 19 ล้มเหลว: งานจริงต้องอยู่ในรายการ';
+  assert v_msg not like '%TEST-DRAFT-%',
+    format('เคส 19 ล้มเหลว: งานร่างต้องไม่โผล่ในรายการ แต่ได้ข้อความว่า %s', v_msg);
+  assert v_msg like '%เลยกำหนด 1 ใบ%',
+    format('เคส 19 ล้มเหลว: ตัวเลขสรุปต้องนับเฉพาะงานที่ไม่ใช่ร่าง แต่ได้ข้อความว่า %s', v_msg);
+  assert v_msg not like '%ค้างอัปเดต%',
+    format('เคส 19 ล้มเหลว: ร่างที่ค้างอัปเดตต้องไม่ทำให้เกิดหมวดนี้ แต่ได้ข้อความว่า %s', v_msg);
+  assert v_msg not like '%รอตรวจ%',
+    format('เคส 19 ล้มเหลว: ร่างที่รอตรวจต้องไม่ทำให้เกิดหมวดนี้ แต่ได้ข้อความว่า %s', v_msg);
+end $$;
+
 rollback;
 
 \echo 'ผ่านทุกเคส'

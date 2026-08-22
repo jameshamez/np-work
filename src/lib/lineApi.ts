@@ -23,8 +23,8 @@ export async function fetchLineConfig(db: SupabaseClient): Promise<LineConfig | 
     .select('enabled, monthly_cap, app_url')
     .maybeSingle();
 
-  // ผู้ใช้ทั่วไปมองไม่เห็นตารางนี้ตาม RLS — ไม่ใช่ error ให้คืน null ไปเงียบ ๆ
   if (error) throw new Error(`อ่านการตั้งค่า LINE ไม่สำเร็จ: ${error.message}`);
+  // ผู้ใช้ทั่วไปมองไม่เห็นตารางนี้ตาม RLS จึงได้ผลลัพธ์ว่าง (ไม่ใช่ error) — คืน null ไปเงียบ ๆ
   if (!data) return null;
 
   return { enabled: data.enabled, monthlyCap: data.monthly_cap, appUrl: data.app_url ?? '' };

@@ -27,10 +27,16 @@ create policy notifications_insert_admin on notifications
   for insert with check (app_is_admin());
 
 -- ผู้เกี่ยวข้องกับงานส่งหากันได้ เฉพาะแจ้งเตือนที่อ้างถึงงานใบนั้นจริง ๆ
+--
+-- ยกเว้น type = 'returned' — มีแต่ admin เท่านั้นที่ตีกลับงานได้ และแจ้งเตือน
+-- ชนิดนี้ยังเป็นตัวจุดชนวน trg_notification_to_line_outbox ที่ยิงข้อความเข้ากลุ่ม
+-- LINE ด้วย จึงห้ามผู้ใช้ทั่วไปสร้างเองเด็ดขาด (ด่านหลักอยู่ใน trigger เอง
+-- ที่ db/07_line_integration.sql ตรงนี้เป็นด่านสำรอง)
 create policy notifications_insert_task_scope on notifications
   for insert with check (
     app_is_approved()
     and task_id is not null
+    and type <> 'returned'
     and app_can_edit_task(task_id, app_current_user_id())
     and app_can_edit_task(task_id, recipient_user_id)
   );

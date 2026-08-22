@@ -319,7 +319,11 @@ export const AdminApprovalView: React.FC = () => {
                               {row.status === 'sent' ? 'ส่งแล้ว' : row.status === 'failed' ? `ล้มเหลว (${row.attempts} ครั้ง)` : 'รอส่ง'}
                             </span>
                           </td>
-                          <td className="py-1.5 px-3 text-red-600">{row.lastError ?? '—'}</td>
+                          {/* แถวที่ status = 'sent' แต่มีหมายเหตุ = กรณี LINE ตอบ 409
+                              (ข้อความถูกส่งไปแล้ว) ไม่ใช่ความล้มเหลว จึงห้ามแสดงเป็นสีแดง */}
+                          <td className={`py-1.5 px-3 ${row.status === 'sent' ? 'text-gray-500' : 'text-red-600'}`}>
+                            {row.lastError ?? '—'}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

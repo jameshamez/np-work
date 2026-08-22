@@ -20,6 +20,26 @@ create extension if not exists pg_net;
 -- เก็บ secret ครั้งแรกครั้งเดียว (รันซ้ำจะ error ว่าชื่อซ้ำ ให้ข้ามได้)
 -- select vault.create_secret('[ค่า LINE_DISPATCH_SECRET]', 'line_dispatch_secret');
 
+-- -----------------------------------------------------------------------------
+-- ต้องมี secret ใน Vault ก่อน ไม่งั้นห้ามติดตั้ง job กวาดคิว
+--
+-- ถ้าไม่มี ค่า subquery จะเป็น null -> header x-line-dispatch-secret เป็น null ->
+-- Edge Function ตอบ 401 ทุกครั้ง แต่ตัว net.http_post เองสำเร็จ cron.job_run_details
+-- จึงขึ้นว่า "succeeded" ทุกรอบ = ตาข่ายกันข้อความตกหายตายสนิทโดยไม่มีใครรู้
+-- จึงต้องพังเสียงดังตั้งแต่ตอนติดตั้ง ไม่ใช่เงียบไปตลอดกาล
+-- -----------------------------------------------------------------------------
+do $$
+begin
+  if coalesce(btrim((select decrypted_secret
+                       from vault.decrypted_secrets
+                      where name = 'line_dispatch_secret')), '') = '' then
+    raise exception 'ไม่พบ secret ชื่อ line_dispatch_secret ใน Vault — job กวาดคิวจะยิง 401 เงียบ ๆ ตลอดไป'
+      using errcode = 'invalid_parameter_value',
+            hint = 'รัน select vault.create_secret(''<ค่า LINE_DISPATCH_SECRET เดียวกับใน Edge Function secrets>'', ''line_dispatch_secret''); ก่อน แล้วค่อยรันไฟล์นี้ใหม่';
+  end if;
+end
+$$;
+
 -- ลบตารางเวลาเดิมก่อน เพื่อให้รันไฟล์ซ้ำได้
 select cron.unschedule('line_daily_digest') where exists (
   select 1 from cron.job where jobname = 'line_daily_digest');
