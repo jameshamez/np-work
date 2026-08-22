@@ -1,0 +1,392 @@
+# NP Taskwork — แจ้งเตือนเข้ากลุ่ม LINE
+
+วันที่: 2026-08-22
+สถานะ: รอตรวจ
+
+---
+
+## 1. เป้าหมาย
+
+ส่งแจ้งเตือนจากระบบติดตามงานเข้า **กลุ่ม LINE กลุ่มเดียวของทีม** ให้เกิดขึ้นจริง
+โดยควบคุมปริมาณข้อความไม่ให้เกินโควตาของ LINE Official Account
+
+ไม่อยู่ในขอบเขต: ผูกบัญชี LINE รายบุคคล, แชท 1:1, ตอบกลับจากใน LINE,
+Rich menu, LINE Login
+
+---
+
+## 2. สถานะปัจจุบัน (ก่อนแก้)
+
+ระบบ **ยังไม่เคยส่งข้อความออกไปหา LINE เลยแม้แต่ครั้งเดียว** — ไม่มีการเรียก
+`api.line.me` ที่ไหนใน repo ทั้งหมด สิ่งที่มีคือ:
+
+| ของที่มีอยู่ | ความจริง |
+|---|---|
+| ปุ่ม "LINE: เปิด/ปิด" (`src/components/Navbar.tsx:74`) | toggle `users.line_notify_enabled` เฉย ๆ ไม่มีผลกับอะไร |
+| `sendTestLineNotify` (`src/context/AppContext.tsx:633`) | insert แถวลงตาราง `notifications` แล้วโชว์ในกระดิ่งบนเว็บ |
+| แจ้งเตือนคู่ `line_notify_sent` (`AppContext.tsx:583`, `:618`) | แถวปลอมที่ตั้งใจให้ "ดูเหมือน" ส่ง LINE |
+| `users.line_notify_token` (`db/01_schema.sql:92`) | เขียนค่าลงได้ แต่ไม่มีโค้ดไหนอ่านไปใช้ |
+
+**LINE Notify ปิดบริการถาวรเมื่อ 31 มี.ค. 2025** ช่อง token แบบเดิมจึงใช้ไม่ได้
+ต้องย้ายไป **LINE Messaging API (LINE Official Account)** ทั้งหมด
+
+### จุดที่ระบบสร้างแจ้งเตือนอยู่ตอนนี้
+
+ฝั่ง DB (ยิงเองเสมอ เชื่อถือได้):
+
+| # | เหตุการณ์ | ที่มา |
+|---|---|---|
+| 1 | งานถูกส่งตรวจ / ตีกลับ / อนุมัติ → แจ้งเจ้าของงาน | `db/02_views_functions.sql:213` |
+| 2 | มีงานรอตรวจ → แจ้ง admin ทุกคน | `db/02_views_functions.sql:234` |
+| 3 | บัญชีได้รับ / ไม่ได้รับอนุมัติ | `db/02_views_functions.sql:313` |
+| 4 | มีคนสมัครใหม่รออนุมัติ → แจ้ง admin | `db/05_auth.sql:70` |
+
+ฝั่งเบราว์เซอร์ (ทำงานต่อเมื่อมีคนเปิดเว็บค้างไว้):
+
+| # | เหตุการณ์ | ที่มา |
+|---|---|---|
+| 5 | งานค้างอัปเดตเกินกำหนด (SLA) | `AppContext.tsx:579` |
+| 6 | อัปเดตสถานะทุน ม.เกษตร | `AppContext.tsx:372` |
+| 7 | ประกาศจาก Super Admin | `AppContext.tsx:609` |
+
+---
+
+## 3. ข้อจำกัดที่กำหนดรูปร่างของ design ทั้งหมด
+
+### 3.1 โควตาข้อความ
+
+LINE นับข้อความที่ส่งเข้ากลุ่มเป็น **จำนวนสมาชิกในกลุ่ม** ไม่ใช่ 1 ข้อความ
+กลุ่ม 10 คน ส่ง 1 ครั้ง = หักโควตา 10
+
+ถ้ายิงทุกเหตุการณ์แบบเรียลไทม์ โควตาจะหมดกลางเดือน แล้วข้อความสำคัญจะเงียบหาย
+**โดยไม่มีใครรู้ตัว** — นี่คือเหตุผลที่ design เลือกวิธี "ด่วนยิงทันที ที่เหลือรวบเป็นสรุป"
+
+> ต้องยืนยันตัวเลขแพ็กเกจจริงใน LINE Official Account Manager ก่อนใช้งาน
+> (แพ็กเกจของไทยเปลี่ยนบ่อย) แต่หลักการคูณจำนวนสมาชิกไม่เปลี่ยน
+
+### 3.2 ไม่มีฝั่งเซิร์ฟเวอร์
+
+ตอนนี้เป็น static site + Supabase ล้วน ๆ **Channel Access Token ห้ามอยู่ในโค้ดหน้าเว็บ
+เด็ดขาด** — Vite ยัด env ที่ขึ้นต้น `VITE_` ลงไปใน bundle ที่เบราว์เซอร์อ่านได้หมด
+ใครก็หยิบไปสวมรอยส่งข้อความในนาม OA ได้ จึงต้องเพิ่ม Supabase Edge Function
+
+### 3.3 SLA คำนวณผิดที่
+
+แจ้งเตือน "งานค้างอัปเดต" (จุดที่ 5) คำนวณในเบราว์เซอร์ ถ้าวันไหนไม่มีใครเปิดเว็บ
+มันไม่เตือนเลย — ซึ่งคือวันที่ต้องการให้มันเตือนที่สุด ต้องย้ายไปรันบนเซิร์ฟเวอร์
+
+---
+
+## 4. เหตุการณ์ที่ส่งเข้ากลุ่ม (ข้อสรุปที่อนุมัติแล้ว)
+
+### เรียลไทม์ — เฉพาะที่ "ช้าแล้วเสียหาย"
+
+| เหตุการณ์ | เหตุผล |
+|---|---|
+| **งานถูกตีกลับ** (`returned`) | คนทำต้องรีบแก้ |
+| **ประกาศด่วนจาก Super Admin** | เจตนาให้ทุกคนเห็นอยู่แล้ว |
+
+### สรุปรวมวันละครั้ง — 08:00 น. (Asia/Bangkok)
+
+ข้อความเดียว รวมงานเลยกำหนด + ค้างอัปเดต + รอตรวจ
+
+### ไม่ส่งเข้ากลุ่ม
+
+| เหตุการณ์ | เหตุผล |
+|---|---|
+| งานได้รับอนุมัติ | ข่าวดี ไม่ต้องรีบ ดูในเว็บพอ |
+| สมัครสมาชิกใหม่ / อนุมัติบัญชี | เรื่องส่วนตัว + เป็นงาน admin ไม่ใช่เรื่องของทั้งกลุ่ม |
+| อัปเดตสถานะทุน ม.เกษตร | ละเอียดเกินไปสำหรับกลุ่ม |
+
+---
+
+## 5. สถาปัตยกรรม
+
+```
+  [เรียลไทม์]                        [สรุปรายวัน]
+  งานถูกตีกลับ                        pg_cron 01:00 UTC (= 08:00 ไทย)
+  ประกาศ Super Admin                        |
+        |                                    v
+        v                          app_build_line_digest()
+   trigger / app code                        |
+        |                                    |
+        +------------> line_outbox <---------+
+                     (1 แถว = 1 ข้อความ)
+                            |
+                  Supabase Database Webhook (pg_net)
+                            |
+                            v
+              Edge Function: line-dispatch
+              (เก็บ Channel Access Token ที่นี่)
+                            |
+                            v
+          POST https://api.line.me/v2/bot/message/push
+                            |
+                            v
+                      กลุ่ม LINE ของทีม
+
+  pg_cron ทุก 15 นาที -> กวาดแถวที่ยังไม่สำเร็จมาส่งซ้ำ
+```
+
+### ทำไมต้องมีตาราง `line_outbox` (ไม่ยิงจาก `notifications` ตรง ๆ)
+
+**เหตุผลหลักคือการนับข้อความ** ตาราง `notifications` เก็บ 1 แถวต่อ 1 ผู้รับ
+ประกาศจาก Super Admin ถึง 10 คน = 10 แถว ถ้ายิงตรงจากตรงนั้นจะกลายเป็น
+**10 ข้อความ LINE สำหรับประกาศเรื่องเดียว** และหักโควตา 100 (10 ข้อความ × 10 สมาชิก)
+
+`line_outbox` บังคับกติกา **1 แถว = 1 ข้อความที่จะส่งจริง** และได้ของแถมมาด้วย:
+
+- **ส่งซ้ำได้เมื่อพลาด** — LINE ล่ม/เน็ตหลุด ไม่ทำให้ข้อความหาย
+- **ไม่ส่งซ้ำซ้อน** — มี `status` กำกับ ไม่ยิงซ้ำแถวที่ส่งไปแล้ว
+- **ตรวจสอบย้อนหลังได้** — เดือนนี้ส่งไปกี่ข้อความ พลาดกี่ครั้ง เพราะอะไร
+- **การส่ง LINE ไม่ทำ transaction ของ DB พัง** — insert เสร็จก็จบ ที่เหลือเป็น async
+
+---
+
+## 6. รายละเอียดแต่ละส่วน
+
+### 6.1 `db/07_line_integration.sql` (ไฟล์ใหม่ รันซ้ำได้)
+
+**ตาราง `line_config`** — แถวเดียว เก็บค่าที่แอดมินปรับได้เอง
+
+| คอลัมน์ | ชนิด | ความหมาย |
+|---|---|---|
+| `id` | `boolean primary key default true` + `check (id)` | ล็อกให้มีได้แถวเดียว |
+| `enabled` | `boolean not null default false` | สวิตช์ใหญ่ เปิด/ปิดการส่ง LINE ทั้งระบบ |
+| `monthly_cap` | `integer not null default 250` | เพดานจำนวนข้อความต่อเดือน กันโควตาบาน |
+| `updated_at` | `timestamptz` | |
+
+`group_id` และ Channel Access Token **ไม่เก็บใน DB** — อยู่ใน Edge Function secrets
+
+**ตาราง `line_outbox`**
+
+| คอลัมน์ | ชนิด | ความหมาย |
+|---|---|---|
+| `id` | `uuid pk` | |
+| `kind` | `text` | `returned` \| `broadcast` \| `digest` \| `test` |
+| `message` | `text not null` | ข้อความที่จะส่ง (เตรียมเสร็จแล้ว) |
+| `status` | `text not null default 'pending'` | `pending` \| `sent` \| `failed` |
+| `attempts` | `integer not null default 0` | |
+| `last_error` | `text` | |
+| `dedupe_key` | `text unique` | กันส่งซ้ำ เช่น `digest:2026-08-22` |
+| `created_at` / `sent_at` | `timestamptz` | |
+
+index: `(status, created_at)` สำหรับ cron ที่มากวาด
+
+**RLS**
+- `select` — admin / super_admin เท่านั้น (ไว้ดูหน้าสถานะ)
+- `insert` — admin / super_admin เท่านั้น (สำหรับประกาศและปุ่มทดสอบ)
+- `update` — ไม่เปิดให้ client เลย (Edge Function ใช้ service role)
+
+**Trigger: งานถูกตีกลับ**
+
+```
+after insert on notifications
+when new.type = 'returned'
+  -> insert into line_outbox (kind, message, dedupe_key)
+     values ('returned', <ข้อความ>, 'returned:' || new.id)
+```
+
+*ข้อจำกัดที่ยอมรับ:* ถ้า admin ตีกลับงานของตัวเอง `notifications` จะไม่ถูกสร้าง
+(`db/02_views_functions.sql:229` มีเงื่อนไข `assigned_to_user_id <> v_actor.id`)
+กลุ่มจึงไม่ได้รับแจ้งเตือน — ยอมรับได้ เพราะคนที่ต้องรู้คือคนเดียวกับคนที่กดเอง
+
+**ฟังก์ชัน `app_build_line_digest()`** — คืนค่า `text` ประกอบจาก:
+- งานเลยกำหนด: `status <> 'approved' and deadline_at < now()`
+- งานค้างอัปเดต: `status <> 'approved' and last_updated_at < now() - interval '4 hours'`
+- งานรอตรวจ: `status = 'pending_review'`
+
+เกณฑ์ "ค้างอัปเดต" ใช้ค่าคงที่ **4 ชั่วโมง** สำหรับทั้งกลุ่ม ไม่ใช้ `users.no_update_alert_hours`
+รายคน — เพราะข้อความสรุปมีใบเดียวส่งเข้ากลุ่มรวม จะใช้เกณฑ์ต่างกันรายคนไม่ได้
+(ค่ารายคนยังใช้กับกระดิ่งบนเว็บเหมือนเดิม)
+
+แต่ละหมวดแสดงไม่เกิน 10 รายการ เกินกว่านั้นตัดเป็น "และอีก N ใบ"
+(LINE จำกัดข้อความละ 5,000 ตัวอักษร) ถ้าไม่มีอะไรเลยทั้ง 3 หมวด **คืน `null`
+และไม่สร้างแถว** — ไม่ส่งข้อความ "วันนี้ไม่มีงานค้าง" ทิ้งโควตาเปล่า
+
+**ฟังก์ชัน `app_enqueue_line_digest()`** — เรียก builder แล้ว insert ลง outbox
+ด้วย `dedupe_key = 'digest:' || current_date` (กันซ้ำถ้า cron ยิงสองรอบ)
+
+**pg_cron 2 ตัว**
+
+| ชื่อ | ตาราง | ทำอะไร |
+|---|---|---|
+| `line_daily_digest` | `0 1 * * *` (UTC = 08:00 ไทย) | เรียก `app_enqueue_line_digest()` |
+| `line_retry_sweep` | `*/15 * * * *` | เรียก Edge Function ให้มาเก็บแถวที่ค้าง |
+
+### 6.2 Edge Function `line-dispatch`
+
+อยู่ที่ `supabase/functions/line-dispatch/index.ts` (Deno)
+
+**Secrets** (ตั้งด้วย `supabase secrets set`, ไม่เข้า git):
+- `LINE_CHANNEL_ACCESS_TOKEN`
+- `LINE_GROUP_ID`
+- `SUPABASE_SERVICE_ROLE_KEY` (Supabase ใส่ให้อัตโนมัติ)
+
+**ขั้นตอนการทำงาน**
+
+1. ตรวจสิทธิ์ผู้เรียก — ต้องมาจาก Database Webhook หรือ cron ที่ถือ service role
+2. อ่าน `line_config` — ถ้า `enabled = false` ให้จบทันที ไม่ส่ง
+3. ดึงแถว `status = 'pending' or (status = 'failed' and attempts < 5)`
+   ด้วย `for update skip locked` (กันสองรอบทำงานชนกัน) ครั้งละไม่เกิน 20 แถว
+4. เช็กเพดาน — นับ `sent` ของเดือนปัจจุบัน ถ้า `>= monthly_cap` ให้หยุด
+   และเขียน `last_error = 'ถึงเพดานข้อความรายเดือน'` (ไม่เงียบหาย)
+5. `POST https://api.line.me/v2/bot/message/push` ทีละแถว
+   พร้อม header `X-Line-Retry-Key: <outbox.id>` — LINE ใช้กันข้อความซ้ำให้อีกชั้น
+6. อัปเดตผลกลับ: สำเร็จ → `sent` + `sent_at`; ไม่สำเร็จ → `failed`, `attempts + 1`,
+   เก็บ status code + body ลง `last_error`
+
+**การจัดการข้อผิดพลาด**
+
+| กรณี | ทำอย่างไร |
+|---|---|
+| 429 (โควตาหมด) / 403 | `failed` และ **ไม่ลองใหม่** — ลองไปก็ไม่ผ่าน |
+| 5xx, timeout, เน็ตหลุด | `failed` แล้วให้ cron 15 นาทีมาลองใหม่ สูงสุด 5 ครั้ง |
+| ครบ 5 ครั้งแล้วยังไม่ผ่าน | หยุด และให้เห็นในหน้าสถานะฝั่งแอดมิน |
+
+### 6.3 ฝั่งแอป (React)
+
+**เปลี่ยน**
+
+| ไฟล์ | สิ่งที่ทำ |
+|---|---|
+| `src/context/AppContext.tsx:609` | ประกาศจาก Super Admin: insert `line_outbox` **1 แถว** (ไม่ใช่ N แถว) และเลิกสร้างแถวปลอม `line_notify_sent` |
+| `src/context/AppContext.tsx:583` | เลิกสร้างแถวปลอม `line_notify_sent` คู่กับ `sla_warning` — ของจริงมาจาก digest แล้ว |
+| `src/context/AppContext.tsx:633` | `sendTestLineNotify` → insert แถว `kind = 'test'` ลง outbox จริง แล้วรายงานผลจาก `status` |
+| `src/components/Navbar.tsx:74` | ปุ่ม LINE → แสดงเฉพาะ admin, อ่าน/เขียน `line_config.enabled` |
+| `src/lib/api.ts`, `src/types.ts` | เพิ่มฟังก์ชัน outbox / config; ลบ `lineNotifyToken` |
+
+**ลบของตาย**
+
+- คอลัมน์ `users.line_notify_token` และ `users.line_notify_enabled`
+  (ของแรกใช้กับบริการที่ปิดไปแล้ว, ของสองไม่มีความหมายเมื่อส่งเข้ากลุ่มรวม
+  เพราะทุกคนในกลุ่มเห็นข้อความเดียวกันอยู่ดี)
+  — ที่เดียวที่อ่าน `line_notify_enabled` อยู่ตอนนี้คือเงื่อนไขสร้างแถวปลอม
+  `line_notify_sent` (`AppContext.tsx:583`) ซึ่งถูกลบไปพร้อมกัน จึงไม่มีอะไรพัง
+- `lineNotifyToken` ใน `src/types.ts:15`, `src/lib/api.ts:57,727`
+- ค่า `line_notify_sent` ใน enum `notification_type` — เก็บไว้ก่อนเพื่อไม่ให้ข้อมูลเดิม
+  ใน `db/04_seed.sql` พัง แต่ไม่มีโค้ดใหม่สร้างค่านี้อีก
+
+**ไม่แตะ**
+
+แจ้งเตือนกระดิ่งบนเว็บทั้งหมดทำงานเหมือนเดิม รวมถึง SLA ฝั่งเบราว์เซอร์
+(`AppContext.tsx:560`) — งานนี้เพิ่มช่องทาง LINE ไม่ได้รื้อของเดิม
+
+---
+
+## 7. หน้าตาข้อความ
+
+**งานถูกตีกลับ**
+```
+🔴 งานถูกตีกลับแก้ไข
+[T-317] ตรวจแบบถังไอน้ำ
+ผู้รับผิดชอบ: สมชาย ใจดี
+เหตุผล: ขาดผลทดสอบความดัน
+เปิดดู: https://<APP_URL>/task/T-317
+```
+
+**ประกาศจาก Super Admin**
+```
+📢 ประกาศจากผู้ดูแลระบบ
+<ข้อความที่แอดมินพิมพ์>
+```
+
+**สรุปรายวัน 08:00**
+```
+📋 สรุปงาน NP Taskwork — 22 ส.ค. 2569
+
+🔴 เลยกำหนด 3 ใบ
+• [T-102] ตรวจแบบถังไอน้ำ — สมชาย (เลย 2 วัน)
+• ...
+
+⏰ ค้างอัปเดตเกิน 4 ชม. 5 ใบ
+• ...
+
+📝 รอตรวจ 2 ใบ
+• ...
+
+เปิดระบบ: https://<APP_URL>
+```
+
+---
+
+## 8. การทดสอบ
+
+โปรเจกต์ยังไม่มี test runner (`package.json` ไม่มี script `test`) แผนคือ:
+
+**ทดสอบ SQL** — ไฟล์ `db/tests/07_line_integration_test.sql` รันด้วย `psql`
+แต่ละเคสอยู่ใน transaction ที่ `rollback` ท้ายสุด
+
+| เคส | สิ่งที่ต้องได้ |
+|---|---|
+| ตีกลับงาน 1 ใบ | `line_outbox` เพิ่ม **1** แถว, `kind = 'returned'` |
+| ประกาศถึงผู้ใช้ 10 คน | `line_outbox` เพิ่ม **1** แถว (ไม่ใช่ 10) |
+| งานได้รับอนุมัติ | `line_outbox` **ไม่เพิ่ม** แถว |
+| สมัครสมาชิกใหม่ | `line_outbox` **ไม่เพิ่ม** แถว |
+| digest ตอนไม่มีงานค้าง | คืน `null`, ไม่สร้างแถว |
+| digest ตอนมีงานเกิน 10 ใบ/หมวด | ตัดที่ 10 + ต่อท้าย "และอีก N ใบ" |
+| เรียก `app_enqueue_line_digest()` ซ้ำในวันเดียว | ยังคงมีแถวเดียว (`dedupe_key`) |
+| user ธรรมดา insert `line_outbox` | ถูก RLS ปฏิเสธ |
+
+**ทดสอบ Edge Function** — เพิ่ม `vitest` แล้วทดสอบเฉพาะส่วนที่เป็น logic ล้วน
+(จัดรูปข้อความ, ตัดสินใจว่าจะ retry ไหมจาก status code) โดยไม่ยิง LINE จริง
+ส่วนการยิงจริงทดสอบด้วยมือผ่าน `supabase functions serve` เข้ากลุ่มทดสอบ
+
+**ทดสอบมือก่อนเปิดใช้จริง**
+
+1. สร้างกลุ่ม LINE ทดสอบ เชิญ OA เข้า ตั้ง `LINE_GROUP_ID` เป็นกลุ่มนั้น
+2. กดปุ่มทดสอบในระบบ → ต้องเห็นข้อความในกลุ่มทดสอบ
+3. ตีกลับงานจริง 1 ใบ → ต้องเห็นข้อความภายในไม่กี่วินาที
+4. เรียก `app_enqueue_line_digest()` ด้วยมือ → ตรวจหน้าตาข้อความสรุป
+5. ตั้ง token ผิดชั่วคราว → ต้องเห็นแถว `failed` + `last_error` ไม่ใช่เงียบหาย
+6. ค่อยเปลี่ยน `LINE_GROUP_ID` เป็นกลุ่มจริง แล้วเปิด `line_config.enabled`
+
+---
+
+## 9. งานที่ต้องทำด้วยมือฝั่ง LINE / Supabase
+
+ทำครั้งเดียว ก่อนโค้ดจะใช้งานได้:
+
+**ฝั่ง LINE**
+
+1. สร้าง LINE Official Account ที่ https://manager.line.biz
+2. เข้า https://developers.line.biz → เปิด Messaging API ให้ OA นั้น
+3. ออก **Channel Access Token** (แบบ long-lived) เก็บไว้
+4. ปิด "Auto-reply messages" และ "Greeting messages" (ไม่งั้น bot ตอบรกกลุ่ม)
+5. เชิญ OA เข้ากลุ่ม LINE ของทีม
+6. **หา `groupId`** — เปิด Webhook ชั่วคราวชี้ไปที่ Edge Function ที่ log payload
+   แล้วพิมพ์อะไรก็ได้ในกลุ่ม 1 ครั้ง → อ่าน `source.groupId` จาก log → ปิด webhook
+   (ค่านี้ไม่มีทางดูจากหน้า UI ของ LINE ได้ ต้องดักจาก event เท่านั้น)
+
+**ฝั่ง Supabase**
+
+7. เปิด extension `pg_cron` และ `pg_net`
+8. `supabase secrets set LINE_CHANNEL_ACCESS_TOKEN=... LINE_GROUP_ID=...`
+9. `supabase functions deploy line-dispatch`
+10. สร้าง Database Webhook: `line_outbox` INSERT → เรียก `line-dispatch`
+11. รัน `db/07_line_integration.sql`
+
+---
+
+## 10. ลำดับการทำงาน
+
+| ขั้น | งาน | ตรวจว่าเสร็จอย่างไร |
+|---|---|---|
+| 1 | `db/07_line_integration.sql` — ตาราง, RLS, trigger, digest, cron | test SQL ผ่านทั้งหมด |
+| 2 | Edge Function `line-dispatch` | vitest ผ่าน + ส่งเข้ากลุ่มทดสอบได้จริง |
+| 3 | ต่อ Database Webhook + ทดสอบ end-to-end | ตีกลับงานจริงแล้วข้อความเข้ากลุ่ม |
+| 4 | แก้ฝั่งแอป — broadcast 1 แถว, ปุ่มทดสอบ, ปุ่ม LINE ของแอดมิน | ทดสอบมือครบ 6 ข้อ |
+| 5 | ลบของตาย — `line_notify_token`, แถวปลอม `line_notify_sent` | `npm run lint` ผ่าน, grep ไม่เจอของเดิม |
+| 6 | เปิด `line_config.enabled` บนกลุ่มจริง | เฝ้าดู `line_outbox` 1 สัปดาห์ |
+
+---
+
+## 11. ความเสี่ยง
+
+| เรื่อง | ผลถ้าเกิด | รับมือ |
+|---|---|---|
+| โควตา LINE หมดกลางเดือน | ข้อความสำคัญเงียบหาย | `monthly_cap` + บันทึกลง `last_error` ให้เห็น ไม่เงียบ |
+| Channel Access Token รั่ว | คนนอกส่งข้อความในนาม OA ได้ | เก็บใน Edge Function secrets เท่านั้น ห้ามขึ้นต้นด้วย `VITE_` |
+| กลุ่มรกจนคนปิดการแจ้งเตือน | ทำไปก็ไม่มีคนอ่าน | ส่งเรียลไทม์แค่ 2 เหตุการณ์ ที่เหลือรวบวันละครั้ง |
+| ย้าย OA ออกจากกลุ่ม / เปลี่ยนกลุ่ม | ส่งไม่เข้าแบบเงียบ ๆ | แถวขึ้น `failed` + มีหน้าสถานะให้แอดมินเห็น |
+| `pg_cron` ไม่ทำงาน | สรุปรายวันหาย | ตรวจว่าแถว `digest:<วันที่>` ของเมื่อวานมีจริง |
