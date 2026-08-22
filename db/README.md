@@ -17,6 +17,8 @@
 | `04_seed.sql` | ข้อมูลตัวอย่าง (ผู้ใช้ 6, โครงการ 10, งาน 6 ใบครบทุกสถานะ) — ข้ามได้ถ้าใช้งานจริง |
 | `05_auth.sql` | เชื่อม Supabase Auth เข้ากับโปรไฟล์ผู้ใช้ |
 | `06_patch_notifications.sql` | เปิดให้ผู้เกี่ยวข้องกับงานส่งแจ้งเตือนหากันได้ (ไม่ใช่แค่ admin) — รันซ้ำได้ |
+| `07_line_integration.sql` | แจ้งเตือนเข้ากลุ่ม LINE — ตาราง `line_config` / `line_outbox`, trigger งานตีกลับ, ข้อความสรุปรายวัน — รันซ้ำได้ |
+| `08_line_schedule.sql` | ตารางเวลา pg_cron ของระบบ LINE — **ต้องแก้ `[PROJECT_REF]` ในไฟล์ก่อนรัน** |
 
 ต้องใช้ **PostgreSQL 15 ขึ้นไป** (ใช้ `security_invoker` ของ view) ทดสอบแล้วบน PostgreSQL 17.10
 
