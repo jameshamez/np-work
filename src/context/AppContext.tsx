@@ -107,6 +107,8 @@ export interface AppContextType {
   checkNoUpdateTasksAndNotify: (targetUserIds?: string[]) => number;
   sendTestLineMessage: () => void;
   sendCustomNotificationToUsers: (userIds: string[], title: string, customMessage: string) => void;
+  /** ดึงคิวข้อความ LINE ล่าสุดมาแสดงในแผงสถานะของแอดมิน — โยน error ออกมาให้ผู้เรียกจัดการเอง */
+  fetchLineQueue: () => Promise<lineApi.LineOutboxRow[]>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -646,6 +648,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  // เจตนาไม่ครอบด้วย run() — ให้ error หลุดออกไปถึงผู้เรียกตรง ๆ
+  // เพราะแผงสถานะใน AdminApprovalView ต้องเอาไปแสดงเป็นข้อความของตัวเอง ไม่ใช่ไปโผล่ที่แบนเนอร์กลาง
+  const fetchLineQueue = useCallback(() => lineApi.fetchLineOutbox(db), [db]);
+
   // ---------------------------------------------------------------------------
   // เทมเพลต Flow
   // ---------------------------------------------------------------------------
@@ -774,6 +780,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         checkNoUpdateTasksAndNotify,
         sendTestLineMessage,
         sendCustomNotificationToUsers,
+        fetchLineQueue,
       }}
     >
       {error && (

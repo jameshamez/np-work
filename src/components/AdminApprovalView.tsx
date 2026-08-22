@@ -13,9 +13,7 @@ import {
   Check,
   Smartphone
 } from 'lucide-react';
-import * as lineApi from '../lib/lineApi';
 import { LineOutboxRow } from '../lib/lineApi';
-import { supabase } from '../lib/supabase';
 
 export const AdminApprovalView: React.FC = () => {
   const {
@@ -26,20 +24,30 @@ export const AdminApprovalView: React.FC = () => {
     tasks,
     updateUserNotificationSettings,
     checkNoUpdateTasksAndNotify,
-    sendTestLineMessage
+    sendTestLineMessage,
+    fetchLineQueue
   } = useApp();
-
-  const db = supabase;
 
   const [activeTab, setActiveTab] = useState<'approvals' | 'notifications'>('approvals');
   const [testSuccessMsg, setTestSuccessMsg] = useState<string | null>(null);
   const [lineQueue, setLineQueue] = useState<LineOutboxRow[]>([]);
+  const [lineQueueError, setLineQueueError] = useState<string | null>(null);
 
   // โหลดคิวตอนเปิดหน้า และหลังกดปุ่มทดสอบ
+  // เจตนาไม่กลืน error เงียบ ๆ — แผงนี้มีไว้เพื่อให้ความล้มเหลวของ LINE มองเห็นได้
   const reloadLineQueue = useCallback(() => {
-    if (!db) return;
-    void lineApi.fetchLineOutbox(db).then(setLineQueue).catch(() => setLineQueue([]));
-  }, [db]);
+    void fetchLineQueue()
+      .then(rows => {
+        setLineQueue(rows);
+        setLineQueueError(null);
+      })
+      .catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e);
+        console.error('โหลดคิวข้อความ LINE ไม่สำเร็จ:', message);
+        setLineQueue([]);
+        setLineQueueError(message);
+      });
+  }, [fetchLineQueue]);
 
   useEffect(reloadLineQueue, [reloadLineQueue]);
 
@@ -272,7 +280,7 @@ export const AdminApprovalView: React.FC = () => {
               </div>
             </div>
 
-            {lineQueue.length > 0 && (
+            {(lineQueue.length > 0 || lineQueueError) && (
               <div className="mt-4 border border-gray-200 rounded-xl overflow-hidden">
                 <div className="px-3 py-2 bg-gray-50 text-xs font-bold text-gray-700 flex items-center justify-between">
                   <span>คิวข้อความ LINE ล่าสุด</span>
@@ -280,36 +288,43 @@ export const AdminApprovalView: React.FC = () => {
                     รีเฟรช
                   </button>
                 </div>
-                <table className="w-full text-[11px]">
-                  <thead className="text-left text-gray-500">
-                    <tr className="border-t border-gray-100">
-                      <th className="py-1.5 px-3">เวลา</th>
-                      <th className="py-1.5 px-3">ประเภท</th>
-                      <th className="py-1.5 px-3">สถานะ</th>
-                      <th className="py-1.5 px-3">รายละเอียดข้อผิดพลาด</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {lineQueue.map(row => (
-                      <tr key={row.id}>
-                        <td className="py-1.5 px-3 text-gray-500">
-                          {new Date(row.createdAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
-                        </td>
-                        <td className="py-1.5 px-3">{row.kind}</td>
-                        <td className="py-1.5 px-3">
-                          <span className={
-                            row.status === 'sent'   ? 'text-emerald-700 font-bold' :
-                            row.status === 'failed' ? 'text-red-700 font-bold'     :
-                                                      'text-gray-500 font-bold'
-                          }>
-                            {row.status === 'sent' ? 'ส่งแล้ว' : row.status === 'failed' ? `ล้มเหลว (${row.attempts} ครั้ง)` : 'รอส่ง'}
-                          </span>
-                        </td>
-                        <td className="py-1.5 px-3 text-red-600">{row.lastError ?? '—'}</td>
+                {lineQueueError ? (
+                  <div className="p-3 bg-red-50 text-red-700 text-xs font-bold flex items-center space-x-2">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>โหลดคิวข้อความ LINE ไม่สำเร็จ: {lineQueueError}</span>
+                  </div>
+                ) : (
+                  <table className="w-full text-[11px]">
+                    <thead className="text-left text-gray-500">
+                      <tr className="border-t border-gray-100">
+                        <th className="py-1.5 px-3">เวลา</th>
+                        <th className="py-1.5 px-3">ประเภท</th>
+                        <th className="py-1.5 px-3">สถานะ</th>
+                        <th className="py-1.5 px-3">รายละเอียดข้อผิดพลาด</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {lineQueue.map(row => (
+                        <tr key={row.id}>
+                          <td className="py-1.5 px-3 text-gray-500">
+                            {new Date(row.createdAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                          </td>
+                          <td className="py-1.5 px-3">{row.kind}</td>
+                          <td className="py-1.5 px-3">
+                            <span className={
+                              row.status === 'sent'   ? 'text-emerald-700 font-bold' :
+                              row.status === 'failed' ? 'text-red-700 font-bold'     :
+                                                        'text-gray-500 font-bold'
+                            }>
+                              {row.status === 'sent' ? 'ส่งแล้ว' : row.status === 'failed' ? `ล้มเหลว (${row.attempts} ครั้ง)` : 'รอส่ง'}
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-3 text-red-600">{row.lastError ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             )}
           </div>
