@@ -335,6 +335,35 @@ begin
     'เคส 15 ล้มเหลว: สรุปรายวันต้องมีแถวเดียวต่อวัน';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- เคส 16 : ผู้ใช้ทั่วไปเรียก app_build_line_digest / app_enqueue_line_digest ไม่ได้
+--          (สองฟังก์ชันนี้ข้าม RLS อ่าน/สร้างข้อมูลทั้งระบบ ต้องเรียกได้เฉพาะ pg_cron)
+-- ---------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"00000000-0000-0000-0000-0000000000b2"}';
+
+do $$
+begin
+  begin
+    perform app_build_line_digest();
+    raise exception 'เคส 16 ล้มเหลว: ผู้ใช้ทั่วไปไม่ควรเรียก app_build_line_digest ได้';
+  exception when insufficient_privilege then
+    null;  -- ถูกต้องแล้ว
+  end;
+end $$;
+
+do $$
+begin
+  begin
+    perform app_enqueue_line_digest();
+    raise exception 'เคส 16 ล้มเหลว: ผู้ใช้ทั่วไปไม่ควรเรียก app_enqueue_line_digest ได้';
+  exception when insufficient_privilege then
+    null;  -- ถูกต้องแล้ว
+  end;
+end $$;
+
+reset role;
+
 rollback;
 
 \echo 'ผ่านทุกเคส'

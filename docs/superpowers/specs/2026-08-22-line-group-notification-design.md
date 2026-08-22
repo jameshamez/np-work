@@ -193,8 +193,12 @@ when new.type = 'returned'
 
 **ฟังก์ชัน `app_build_line_digest()`** — คืนค่า `text` ประกอบจาก:
 - งานเลยกำหนด: `status <> 'approved' and deadline_at < now()`
-- งานค้างอัปเดต: `status <> 'approved' and last_updated_at < now() - interval '4 hours'`
+- งานค้างอัปเดต: `status <> 'approved' and deadline_at >= now() and last_updated_at < now() - interval '4 hours'`
 - งานรอตรวจ: `status = 'pending_review'`
+
+เงื่อนไข `deadline_at >= now()` ในหมวด "ค้างอัปเดต" กันไม่ให้งานที่เลยกำหนดไปแล้วโผล่ซ้ำสองหมวด
+ในข้อความเดียวกัน (งานเลยกำหนดที่ไม่มีใครแตะต่อเนื่องก็ค้างอัปเดตเกิน 4 ชม. ไปด้วยเสมออยู่แล้ว
+จึงนับเป็นหมวด "เลยกำหนด" หมวดเดียวพอ)
 
 เกณฑ์ "ค้างอัปเดต" ใช้ค่าคงที่ **4 ชั่วโมง** สำหรับทั้งกลุ่ม ไม่ใช้ `users.no_update_alert_hours`
 รายคน — เพราะข้อความสรุปมีใบเดียวส่งเข้ากลุ่มรวม จะใช้เกณฑ์ต่างกันรายคนไม่ได้

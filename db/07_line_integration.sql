@@ -335,4 +335,9 @@ begin
 end;
 $$;
 
+-- สองฟังก์ชันนี้ข้าม RLS และอ่าน/สร้างข้อมูลของทั้งระบบ ให้เรียกได้เฉพาะ pg_cron
+-- (ที่ทำงานเป็น service role) เท่านั้น ห้าม anon/authenticated เรียกผ่าน RPC โดยตรง
+revoke execute on function app_build_line_digest()   from public, anon, authenticated;
+revoke execute on function app_enqueue_line_digest() from public, anon, authenticated;
+
 commit;
