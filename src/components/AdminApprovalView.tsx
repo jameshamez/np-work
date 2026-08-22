@@ -1,34 +1,47 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { 
-  ShieldCheck, 
-  UserCheck, 
-  UserX, 
-  Clock, 
-  CheckCircle2, 
-  AlertCircle, 
-  Bell, 
-  Send, 
-  MessageSquare, 
+import {
+  ShieldCheck,
+  UserCheck,
+  UserX,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  Bell,
+  MessageSquare,
   Zap,
   Check,
   Smartphone
 } from 'lucide-react';
+import * as lineApi from '../lib/lineApi';
+import { LineOutboxRow } from '../lib/lineApi';
+import { supabase } from '../lib/supabase';
 
 export const AdminApprovalView: React.FC = () => {
-  const { 
-    users, 
-    approveUser, 
-    rejectUser, 
+  const {
+    users,
+    approveUser,
+    rejectUser,
     currentUser,
     tasks,
     updateUserNotificationSettings,
     checkNoUpdateTasksAndNotify,
-    sendTestLineNotify
+    sendTestLineMessage
   } = useApp();
+
+  const db = supabase;
 
   const [activeTab, setActiveTab] = useState<'approvals' | 'notifications'>('approvals');
   const [testSuccessMsg, setTestSuccessMsg] = useState<string | null>(null);
+  const [lineQueue, setLineQueue] = useState<LineOutboxRow[]>([]);
+
+  // โหลดคิวตอนเปิดหน้า และหลังกดปุ่มทดสอบ
+  const reloadLineQueue = useCallback(() => {
+    if (!db) return;
+    void lineApi.fetchLineOutbox(db).then(setLineQueue).catch(() => setLineQueue([]));
+  }, [db]);
+
+  useEffect(reloadLineQueue, [reloadLineQueue]);
 
   if (currentUser?.role !== 'super_admin') {
     return (
@@ -47,14 +60,14 @@ export const AdminApprovalView: React.FC = () => {
 
   const handleManualCheckTrigger = () => {
     const count = checkNoUpdateTasksAndNotify();
-    setTestSuccessMsg(`ส่งการแจ้งเตือนเตือนความจำสำเร็จ ${count} รายการ (ส่งผ่านระบบเว็บ & LINE Notify เรียบร้อยแล้ว)`);
+    setTestSuccessMsg(`ส่งการแจ้งเตือนเตือนความจำบนเว็บสำเร็จ ${count} รายการ`);
     setTimeout(() => setTestSuccessMsg(null), 5000);
   };
 
-  const handleTestLine = (userId: string, userName: string) => {
-    sendTestLineNotify(userId);
-    setTestSuccessMsg(`ส่งข้อความทดสอบ LINE Notify ถึงคุณ ${userName} เรียบร้อยแล้ว!`);
-    setTimeout(() => setTestSuccessMsg(null), 5000);
+  const handleTestLine = () => {
+    sendTestLineMessage();
+    setTestSuccessMsg('หย่อนข้อความทดสอบเข้าคิวแล้ว — ดูในกลุ่ม LINE ของทีมภายในไม่กี่วินาที');
+    setTimeout(() => { setTestSuccessMsg(null); reloadLineQueue(); }, 5000);
   };
 
   return (
@@ -231,7 +244,8 @@ export const AdminApprovalView: React.FC = () => {
                   <span>เงื่อนไขและช่องทางการแจ้งเตือนอัตโนมัติ</span>
                 </h3>
                 <p className="text-xs text-gray-600 leading-relaxed">
-                  ระบบจะทำการแจ้งเตือนผ่าน <span className="font-bold text-gray-900">กระดิ่งใน Web App</span> และส่งข้อความเข้า <span className="font-bold text-emerald-700">LINE Notify</span> ทันทีตาม 2 เงื่อนไข:
+                  ระบบจะทำการแจ้งเตือนผ่าน <span className="font-bold text-gray-900">กระดิ่งใน Web App</span> ทันทีตาม 2 เงื่อนไข
+                  (ส่วนข้อความเข้ากลุ่ม <span className="font-bold text-emerald-700">LINE</span> ส่งเป็นสรุปรายวันแยกต่างหาก):
                 </p>
                 <ul className="text-xs text-gray-700 space-y-1 mt-1 font-medium list-disc list-inside">
                   <li><span className="font-bold text-orange-800">เมื่อมีคนกดส่งงาน</span> → ระบบส่งแจ้งเตือนถึงผู้ตรวจและผู้เกี่ยวข้องทันที</li>
@@ -239,14 +253,65 @@ export const AdminApprovalView: React.FC = () => {
                 </ul>
               </div>
 
-              <button
-                onClick={handleManualCheckTrigger}
-                className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all flex items-center space-x-2 shrink-0 cursor-pointer"
-              >
-                <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
-                <span>ตรวจสอบ & ส่งแจ้งเตือนการ์ดค้างอัปเดตทันที</span>
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                <button
+                  onClick={handleManualCheckTrigger}
+                  className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all flex items-center space-x-2 cursor-pointer"
+                >
+                  <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+                  <span>ตรวจสอบ & ส่งแจ้งเตือนการ์ดค้างอัปเดตทันที</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleTestLine}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 transition-colors"
+                >
+                  ทดสอบส่งเข้ากลุ่ม LINE
+                </button>
+              </div>
             </div>
+
+            {lineQueue.length > 0 && (
+              <div className="mt-4 border border-gray-200 rounded-xl overflow-hidden">
+                <div className="px-3 py-2 bg-gray-50 text-xs font-bold text-gray-700 flex items-center justify-between">
+                  <span>คิวข้อความ LINE ล่าสุด</span>
+                  <button type="button" onClick={reloadLineQueue} className="text-[11px] font-bold text-orange-600">
+                    รีเฟรช
+                  </button>
+                </div>
+                <table className="w-full text-[11px]">
+                  <thead className="text-left text-gray-500">
+                    <tr className="border-t border-gray-100">
+                      <th className="py-1.5 px-3">เวลา</th>
+                      <th className="py-1.5 px-3">ประเภท</th>
+                      <th className="py-1.5 px-3">สถานะ</th>
+                      <th className="py-1.5 px-3">รายละเอียดข้อผิดพลาด</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {lineQueue.map(row => (
+                      <tr key={row.id}>
+                        <td className="py-1.5 px-3 text-gray-500">
+                          {new Date(row.createdAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                        </td>
+                        <td className="py-1.5 px-3">{row.kind}</td>
+                        <td className="py-1.5 px-3">
+                          <span className={
+                            row.status === 'sent'   ? 'text-emerald-700 font-bold' :
+                            row.status === 'failed' ? 'text-red-700 font-bold'     :
+                                                      'text-gray-500 font-bold'
+                          }>
+                            {row.status === 'sent' ? 'ส่งแล้ว' : row.status === 'failed' ? `ล้มเหลว (${row.attempts} ครั้ง)` : 'รอส่ง'}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-3 text-red-600">{row.lastError ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* User Notification Rules Table */}
@@ -265,15 +330,12 @@ export const AdminApprovalView: React.FC = () => {
                     <th className="py-2.5 px-3">ผู้รับผิดชอบ / ผู้สร้างการ์ด</th>
                     <th className="py-2.5 px-3">ระดับสิทธิ์</th>
                     <th className="py-2.5 px-3">แจ้งเตือนขาดการอัปเดต (กำหนดเวลา)</th>
-                    <th className="py-2.5 px-3">สถานะ LINE Notify</th>
                     <th className="py-2.5 px-3">การ์ดค้างอัปเดตขณะนี้</th>
-                    <th className="py-2.5 px-3 text-right">ทดสอบระบบ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 font-medium">
                   {users.map(u => {
                     const alertHours = u.noUpdateAlertHours ?? 4;
-                    const isLineActive = u.lineNotifyEnabled !== false;
 
                     // Determine display mode (minutes vs hours)
                     const displayInMinutes = alertHours < 1 || (Math.round(alertHours * 60) % 60 !== 0 && alertHours <= 3);
@@ -386,26 +448,6 @@ export const AdminApprovalView: React.FC = () => {
                           </div>
                         </td>
 
-                        {/* LINE Toggle */}
-                        <td className="py-3 px-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              updateUserNotificationSettings(u.id, {
-                                lineNotifyEnabled: !isLineActive
-                              });
-                            }}
-                            className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center space-x-1.5 transition-colors cursor-pointer ${
-                              isLineActive
-                                ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                                : 'bg-gray-100 text-gray-500 border border-gray-200'
-                            }`}
-                          >
-                            <span className={`w-2 h-2 rounded-full ${isLineActive ? 'bg-emerald-500' : 'bg-gray-400'}`}></span>
-                            <span>{isLineActive ? 'เปิดใช้งาน LINE' : 'ปิดใช้งาน'}</span>
-                          </button>
-                        </td>
-
                         {/* Count of No Update Tasks */}
                         <td className="py-3 px-3">
                           {pendingNoUpdateTasks.length > 0 ? (
@@ -418,18 +460,6 @@ export const AdminApprovalView: React.FC = () => {
                               ไม่มีการ์ดค้าง
                             </span>
                           )}
-                        </td>
-
-                        {/* Test Button */}
-                        <td className="py-3 px-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleTestLine(u.id, u.fullName)}
-                            className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-[11px] font-bold flex items-center space-x-1.5 ml-auto transition-colors cursor-pointer"
-                          >
-                            <Send className="w-3 h-3 text-emerald-600" />
-                            <span>ทดสอบส่ง LINE</span>
-                          </button>
                         </td>
 
                       </tr>

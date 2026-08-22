@@ -17,6 +17,7 @@ import {
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 import * as api from '../lib/api';
+import * as lineApi from '../lib/lineApi';
 
 export interface AppContextType {
   currentUser: User | null;
@@ -26,7 +27,7 @@ export interface AppContextType {
   logs: TaskLog[];
   notifications: NotificationItem[];
   flowTemplates: FlowTemplate[];
-  lineNotifyEnabled: boolean;
+  lineEnabled: boolean;
 
   /** กำลังโหลดข้อมูลชุดแรกจากฐานข้อมูล */
   loading: boolean;
@@ -50,7 +51,7 @@ export interface AppContextType {
   }) => void;
   deleteFlowTemplate: (id: string) => void;
   deleteTask: (taskId: string) => void;
-  toggleLineNotify: () => void;
+  toggleLineEnabled: () => void;
 
   setCurrentUserId: (id: string) => void;
   approveUser: (userId: string) => void;
@@ -104,7 +105,7 @@ export interface AppContextType {
     settings: { noUpdateAlertHours?: number; lineNotifyEnabled?: boolean; lineNotifyToken?: string }
   ) => void;
   checkNoUpdateTasksAndNotify: (targetUserIds?: string[]) => number;
-  sendTestLineNotify: (userId: string) => void;
+  sendTestLineMessage: () => void;
   sendCustomNotificationToUsers: (userIds: string[], title: string, customMessage: string) => void;
 }
 
@@ -143,7 +144,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     users.find(u => u.id === profile?.id) ??
     null;
 
-  const lineNotifyEnabled = currentUser?.lineNotifyEnabled ?? true;
+  const [lineEnabled, setLineEnabled] = useState(false);
+
+  // อ่านค่าสวิตช์ LINE ตอนเข้าระบบ — ผู้ใช้ทั่วไปอ่านไม่ได้ตาม RLS จึงได้ false ไป
+  useEffect(() => {
+    if (!db) return;
+    void (async () => {
+      try {
+        const config = await lineApi.fetchLineConfig(db);
+        setLineEnabled(config?.enabled ?? false);
+      } catch {
+        setLineEnabled(false);
+      }
+    })();
+  }, [db, currentUser?.id]);
+
+  const toggleLineEnabled = () => {
+    const next = !lineEnabled;
+    setLineEnabled(next);  // ตอบสนองทันที
+    void run(async () => {
+      try {
+        await lineApi.setLineEnabled(db, next);
+      } catch (e) {
+        setLineEnabled(!next);  // ย้อนกลับถ้าบันทึกไม่ผ่าน
+        throw e;
+      }
+    });
+  };
 
   /** ครอบการเรียก API ทุกครั้ง เพื่อให้ error ไปโผล่บนหน้าจอแทนที่จะเงียบหายไปใน console */
   const run = useCallback(async (action: () => Promise<void>) => {
@@ -521,16 +548,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const toggleLineNotify = () => {
-    if (!currentUser) return;
-    void run(async () => {
-      await api.updateUserSettings(db, currentUser.id, {
-        lineNotifyEnabled: !(currentUser.lineNotifyEnabled ?? true),
-      });
-      setUsers(await api.fetchUsers(db));
-    });
-  };
-
   // ---------------------------------------------------------------------------
   // แจ้งเตือน
   // ---------------------------------------------------------------------------
@@ -579,16 +596,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         type: 'sla_warning',
         taskId: task.id,
       });
-
-      if (owner?.lineNotifyEnabled ?? true) {
-        pending.push({
-          recipientUserId: recipientId,
-          title: '📲 LINE Notify: เตือนความจำงานค้างอัปเดต',
-          message: `LINE Notify ถึง ${owner?.fullName || 'ผู้รับผิดชอบ'}: การ์ดงาน [${task.code}] ${task.title} ยังไม่มีการอัปเดตเกิน ${durationText} โปรดเข้าตรวจสอบในระบบ`,
-          type: 'line_notify_sent',
-          taskId: task.id,
-        });
-      }
     });
 
     if (pending.length > 0) {
@@ -598,55 +605,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
 
-    // นับเฉพาะการแจ้งเตือนบนเว็บ (ไม่นับคู่ LINE ที่ส่งควบไปด้วย)
-    return pending.filter(p => p.type === 'sla_warning').length;
+    return pending.length;
   };
 
   const sendCustomNotificationToUsers = (userIds: string[], title: string, customMessage: string) => {
     if (!userIds?.length) return;
 
     void run(async () => {
+      // กระดิ่งบนเว็บ — 1 แถวต่อผู้รับ 1 คน (ตั้งใจ เพราะแต่ละคนต้องกดอ่านของตัวเอง)
       await api.insertNotifications(
         db,
-        userIds.flatMap(uid => {
-          const target = users.find(u => u.id === uid);
-          return [
-            {
-              recipientUserId: uid,
-              title: title || '📢 ประกาศแจ้งเตือนพิเศษจาก Super Admin',
-              message: customMessage,
-              type: 'sla_warning' as const,
-            },
-            {
-              recipientUserId: uid,
-              title: `📲 LINE Notify: ${title || 'ประกาศด่วนจากระบบ'}`,
-              message: `LINE Notify ถึงคุณ ${target?.fullName || 'สมาชิก'}: ${customMessage}`,
-              type: 'line_notify_sent' as const,
-            },
-          ];
-        })
+        userIds.map(uid => ({
+          recipientUserId: uid,
+          title: title || '📢 ประกาศแจ้งเตือนพิเศษจาก Super Admin',
+          message: customMessage,
+          type: 'sla_warning' as const,
+        }))
       );
+
+      // LINE — 1 แถวเท่านั้นสำหรับประกาศทั้งก้อน
+      // ถ้าวนสร้างทีละคน ประกาศเรื่องเดียวถึง 10 คนจะกลายเป็น 10 ข้อความ
+      // และหักโควตา LINE ไป 100 (10 ข้อความ x สมาชิกกลุ่ม 10 คน)
+      await lineApi.enqueueLineMessage(
+        db,
+        'broadcast',
+        `📢 ${title || 'ประกาศจากผู้ดูแลระบบ'}\n${customMessage}`
+      );
+
       setNotifications(await api.fetchNotifications(db));
     });
   };
 
-  const sendTestLineNotify = (userId: string) => {
-    const target = users.find(u => u.id === userId);
-    if (!target) return;
-
-    const alertH = target.noUpdateAlertHours ?? 4;
-    const durationText = alertH < 1 ? `${Math.round(alertH * 60)} นาที` : `${alertH} ชม.`;
-
+  const sendTestLineMessage = () => {
     void run(async () => {
-      await api.insertNotifications(db, [
-        {
-          recipientUserId: userId,
-          title: '📲 LINE Notify: ทดสอบการส่งข้อความ',
-          message: `[ทดสอบ LINE Notify] ระบบได้ส่งการแจ้งเตือนถึงคุณ ${target.fullName} สำเร็จแล้ว (รอบเตือนงานค้างอัปเดต: ทุก ${durationText})`,
-          type: 'line_notify_sent',
-        },
-      ]);
-      setNotifications(await api.fetchNotifications(db));
+      await lineApi.enqueueLineMessage(
+        db,
+        'test',
+        '🧪 ทดสอบระบบแจ้งเตือน NP Taskwork — ถ้าเห็นข้อความนี้แปลว่าเชื่อมต่อกลุ่มสำเร็จแล้ว'
+      );
     });
   };
 
@@ -744,7 +740,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         logs,
         notifications,
         flowTemplates,
-        lineNotifyEnabled,
+        lineEnabled,
         loading,
         error,
         refreshAll,
@@ -753,7 +749,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteFlowTemplate,
         deleteTask,
         addProject,
-        toggleLineNotify,
+        toggleLineEnabled,
         setCurrentUserId: setViewAsUserId,
         approveUser,
         rejectUser,
@@ -776,7 +772,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         resetDataToDefault,
         updateUserNotificationSettings,
         checkNoUpdateTasksAndNotify,
-        sendTestLineNotify,
+        sendTestLineMessage,
         sendCustomNotificationToUsers,
       }}
     >

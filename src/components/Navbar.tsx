@@ -29,8 +29,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     notifications,
     markNotificationRead,
     clearAllNotifications,
-    lineNotifyEnabled,
-    toggleLineNotify,
+    lineEnabled,
+    toggleLineEnabled,
   } = useApp();
 
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
@@ -69,21 +69,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Center / Right Controls */}
           <div className="flex items-center space-x-2 sm:space-x-4">
 
-            {/* LINE Notify Status Toggle */}
-            <button
-              onClick={toggleLineNotify}
-              className={`inline-flex items-center space-x-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition-all ${
-                lineNotifyEnabled
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                  : 'bg-gray-50 text-gray-400 border-gray-200'
-              }`}
-              title="สลับสถานะระบบแจ้งเตือน LINE Notify"
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">
-                LINE: {lineNotifyEnabled ? 'เปิด' : 'ปิด'}
-              </span>
-            </button>
+            {/* สวิตช์ระบบแจ้งเตือน LINE — แอดมินเท่านั้น เพราะเป็นค่าระดับระบบ ไม่ใช่ค่าส่วนตัว */}
+            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
+              <button
+                onClick={toggleLineEnabled}
+                className={`inline-flex items-center space-x-1 px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition-all ${
+                  lineEnabled
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                    : 'bg-gray-50 text-gray-400 border-gray-200'
+                }`}
+                title="เปิด/ปิดการส่งแจ้งเตือนเข้ากลุ่ม LINE ของทีม"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">
+                  LINE: {lineEnabled ? 'เปิด' : 'ปิด'}
+                </span>
+              </button>
+            )}
 
             {/* Notification Bell */}
             <div className="relative">
