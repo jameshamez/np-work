@@ -134,4 +134,59 @@ drop policy if exists line_outbox_insert_admin on line_outbox;
 create policy line_outbox_insert_admin on line_outbox
   for insert with check (app_is_admin());
 
+-- -----------------------------------------------------------------------------
+-- trg_notification_to_line_outbox : งานถูกตีกลับ -> เข้าคิวส่ง LINE
+--
+-- ดักที่ตาราง notifications เพราะ app_change_task_status() สร้างแถว
+-- type = 'returned' ให้เจ้าของงานอยู่แล้ว จึงไม่ต้องไปแก้ฟังก์ชันนั้น
+--
+-- แจ้งเตือนชนิดอื่น (อนุมัติ / รอตรวจ / สมัครสมาชิก) ไม่เข้าคิว LINE โดยตั้งใจ
+-- ดูเหตุผลใน docs/superpowers/specs/2026-08-22-line-group-notification-design.md
+-- -----------------------------------------------------------------------------
+create or replace function trg_notification_to_line_outbox() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_code   text;
+  v_title  text;
+  v_owner  text;
+  v_url    text;
+  v_msg    text;
+begin
+  if new.type <> 'returned' or new.task_id is null then
+    return new;
+  end if;
+
+  select t.code, t.title, u.full_name
+    into v_code, v_title, v_owner
+    from tasks t
+    left join users u on u.id = t.assigned_to_user_id
+   where t.id = new.task_id;
+
+  if v_code is null then
+    return new;  -- งานถูกลบไปแล้วระหว่างทาง ไม่มีอะไรให้แจ้ง
+  end if;
+
+  select app_url into v_url from line_config;
+
+  v_msg := format(E'🔴 งานถูกตีกลับแก้ไข\n[%s] %s\nผู้รับผิดชอบ: %s\nรายละเอียด: %s',
+                  v_code, v_title, coalesce(v_owner, 'ไม่ระบุ'),
+                  coalesce(nullif(btrim(new.message), ''), 'ไม่ระบุรายละเอียด'));
+
+  if coalesce(btrim(v_url), '') <> '' then
+    v_msg := v_msg || E'\nเปิดระบบ: ' || v_url;
+  end if;
+
+  insert into line_outbox (kind, message, dedupe_key)
+  values ('returned', left(v_msg, 4900), 'returned:' || new.id)
+  on conflict (dedupe_key) do nothing;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists notifications_to_line_outbox on notifications;
+create trigger notifications_to_line_outbox
+  after insert on notifications
+  for each row execute function trg_notification_to_line_outbox();
+
 commit;
