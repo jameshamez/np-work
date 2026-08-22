@@ -189,4 +189,150 @@ create trigger notifications_to_line_outbox
   after insert on notifications
   for each row execute function trg_notification_to_line_outbox();
 
+-- -----------------------------------------------------------------------------
+-- app_build_line_digest : ประกอบข้อความสรุปประจำวัน
+--
+-- คืน null เมื่อไม่มีอะไรต้องรายงาน — จงใจไม่ส่ง "วันนี้ไม่มีงานค้าง"
+-- เพราะข้อความเข้ากลุ่มหักโควตาตามจำนวนสมาชิก ไม่ควรเปลืองไปกับข่าวที่ไม่ต้องรู้
+--
+-- เกณฑ์ "ค้างอัปเดต" ใช้ 4 ชั่วโมงตายตัวสำหรับทั้งกลุ่ม ไม่ใช้ค่ารายคนใน
+-- users.no_update_alert_hours เพราะข้อความสรุปมีใบเดียวส่งเข้ากลุ่มรวม
+-- (ค่ารายคนยังใช้กับกระดิ่งบนเว็บเหมือนเดิม)
+-- -----------------------------------------------------------------------------
+create or replace function app_build_line_digest() returns text
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c_limit      constant integer := 10;
+  c_stale_hrs  constant integer := 4;
+
+  v_now        timestamptz := now();
+  v_bkk        timestamp   := v_now at time zone 'Asia/Bangkok';
+  v_thai_date  text;
+  v_url        text;
+
+  v_n_over     integer;
+  v_n_stale    integer;
+  v_n_review   integer;
+  v_over       text;
+  v_stale      text;
+  v_review     text;
+  v_msg        text;
+begin
+  -- นับก่อน (นับทั้งหมด ไม่ใช่แค่ 10 ใบที่จะแสดง)
+  select count(*) into v_n_over
+    from tasks where status <> 'approved' and deadline_at < v_now;
+
+  select count(*) into v_n_stale
+    from tasks
+   where status <> 'approved'
+     and deadline_at >= v_now
+     and last_updated_at < v_now - make_interval(hours => c_stale_hrs);
+
+  select count(*) into v_n_review
+    from tasks where status = 'pending_review';
+
+  if v_n_over = 0 and v_n_stale = 0 and v_n_review = 0 then
+    return null;
+  end if;
+
+  select app_url into v_url from line_config;
+
+  v_thai_date := to_char(v_bkk, 'DD') || ' '
+    || (array['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.',
+              'ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'])[extract(month from v_bkk)::int]
+    || ' ' || (extract(year from v_bkk)::int + 543);
+
+  -- หมวด 1 : เลยกำหนด
+  select string_agg(s.line, E'\n') into v_over from (
+    select format('• [%s] %s — %s (เลย %s วัน)',
+                  t.code, t.title, coalesce(u.full_name, 'ไม่ระบุ'),
+                  greatest(1, floor(extract(epoch from v_now - t.deadline_at) / 86400)::int)) as line
+      from tasks t
+      left join users u on u.id = t.assigned_to_user_id
+     where t.status <> 'approved' and t.deadline_at < v_now
+     order by t.deadline_at
+     limit c_limit
+  ) s;
+
+  -- หมวด 2 : ค้างอัปเดต
+  select string_agg(s.line, E'\n') into v_stale from (
+    select format('• [%s] %s — %s (นิ่งมา %s ชม.)',
+                  t.code, t.title, coalesce(u.full_name, 'ไม่ระบุ'),
+                  floor(extract(epoch from v_now - t.last_updated_at) / 3600)::int) as line
+      from tasks t
+      left join users u on u.id = t.assigned_to_user_id
+     where t.status <> 'approved'
+       and t.deadline_at >= v_now
+       and t.last_updated_at < v_now - make_interval(hours => c_stale_hrs)
+     order by t.last_updated_at
+     limit c_limit
+  ) s;
+
+  -- หมวด 3 : รอตรวจ
+  select string_agg(s.line, E'\n') into v_review from (
+    select format('• [%s] %s — %s',
+                  t.code, t.title, coalesce(u.full_name, 'ไม่ระบุ')) as line
+      from tasks t
+      left join users u on u.id = t.assigned_to_user_id
+     where t.status = 'pending_review'
+     order by t.deadline_at
+     limit c_limit
+  ) s;
+
+  v_msg := format('📋 สรุปงาน NP Taskwork — %s', v_thai_date);
+
+  if v_n_over > 0 then
+    v_msg := v_msg || format(E'\n\n🔴 เลยกำหนด %s ใบ\n%s', v_n_over, v_over);
+    if v_n_over > c_limit then
+      v_msg := v_msg || format(E'\n… และอีก %s ใบ', v_n_over - c_limit);
+    end if;
+  end if;
+
+  if v_n_stale > 0 then
+    v_msg := v_msg || format(E'\n\n⏰ ค้างอัปเดตเกิน %s ชม. %s ใบ\n%s', c_stale_hrs, v_n_stale, v_stale);
+    if v_n_stale > c_limit then
+      v_msg := v_msg || format(E'\n… และอีก %s ใบ', v_n_stale - c_limit);
+    end if;
+  end if;
+
+  if v_n_review > 0 then
+    v_msg := v_msg || format(E'\n\n📝 รอตรวจ %s ใบ\n%s', v_n_review, v_review);
+    if v_n_review > c_limit then
+      v_msg := v_msg || format(E'\n… และอีก %s ใบ', v_n_review - c_limit);
+    end if;
+  end if;
+
+  if coalesce(btrim(v_url), '') <> '' then
+    v_msg := v_msg || E'\n\nเปิดระบบ: ' || v_url;
+  end if;
+
+  return left(v_msg, 4900);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- app_enqueue_line_digest : สร้างแถวสรุปรายวันเข้าคิว (pg_cron เรียกตัวนี้)
+-- dedupe_key ผูกกับวันที่แบบเวลาไทย เรียกซ้ำกี่ครั้งก็ได้แถวเดียว
+-- -----------------------------------------------------------------------------
+create or replace function app_enqueue_line_digest() returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_msg text;
+  v_id  uuid;
+begin
+  v_msg := app_build_line_digest();
+  if v_msg is null then
+    return null;
+  end if;
+
+  insert into line_outbox (kind, message, dedupe_key)
+  values ('digest', v_msg,
+          'digest:' || to_char((now() at time zone 'Asia/Bangkok')::date, 'YYYY-MM-DD'))
+  on conflict (dedupe_key) do nothing
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
 commit;

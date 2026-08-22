@@ -215,6 +215,126 @@ begin
 end $$;
 
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- เคส 11 : ไม่มีงานค้างเลย -> ไม่ส่งข้อความ (ไม่ทิ้งโควตาไปกับ "วันนี้ไม่มีงานค้าง")
+-- ---------------------------------------------------------------------------
+delete from line_outbox;
+delete from tasks;
+
+do $$
+begin
+  assert app_build_line_digest() is null,
+    'เคส 11 ล้มเหลว: ไม่มีงานค้างต้องคืน null';
+  assert app_enqueue_line_digest() is null,
+    'เคส 11 ล้มเหลว: ไม่มีงานค้างต้องไม่สร้างแถวในคิว';
+  assert (select count(*) from line_outbox) = 0,
+    'เคส 11 ล้มเหลว: คิวต้องว่าง';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- เคส 12 : มีงานครบสามหมวด -> ข้อความมีครบสามหัวข้อ
+-- ---------------------------------------------------------------------------
+-- งานเลยกำหนด (ต้องย้อน created_at ด้วย เพราะมี check deadline_at >= created_at)
+insert into tasks (code, project_id, title, assigned_to_user_id,
+                   created_at, deadline_at, last_updated_at, status)
+values ('TEST-OVERDUE-1', '00000000-0000-0000-0000-0000000000c1', 'งานเลยกำหนด',
+        '00000000-0000-0000-0000-0000000000a2',
+        now() - interval '10 days', now() - interval '2 days', now(), 'pending_submission');
+
+-- งานค้างอัปเดตเกิน 4 ชม. แต่ยังไม่เลยกำหนด
+insert into tasks (code, project_id, title, assigned_to_user_id,
+                   created_at, deadline_at, last_updated_at, status)
+values ('TEST-STALE-1', '00000000-0000-0000-0000-0000000000c1', 'งานค้างอัปเดต',
+        '00000000-0000-0000-0000-0000000000a2',
+        now() - interval '2 days', now() + interval '5 days',
+        now() - interval '6 hours', 'pending_submission');
+
+-- งานรอตรวจ
+insert into tasks (code, project_id, title, assigned_to_user_id,
+                   created_at, deadline_at, last_updated_at, status)
+values ('TEST-REVIEW-1', '00000000-0000-0000-0000-0000000000c1', 'งานรอตรวจ',
+        '00000000-0000-0000-0000-0000000000a2',
+        now() - interval '1 day', now() + interval '5 days', now(), 'pending_review');
+
+do $$
+declare
+  v_msg text;
+begin
+  v_msg := app_build_line_digest();
+  assert v_msg is not null, 'เคส 12 ล้มเหลว: ต้องได้ข้อความสรุป';
+  assert v_msg like '%เลยกำหนด%',      'เคส 12 ล้มเหลว: ต้องมีหัวข้องานเลยกำหนด';
+  assert v_msg like '%TEST-OVERDUE-1%', 'เคส 12 ล้มเหลว: ต้องมีงานเลยกำหนดในรายการ';
+  assert v_msg like '%ค้างอัปเดต%',     'เคส 12 ล้มเหลว: ต้องมีหัวข้องานค้างอัปเดต';
+  assert v_msg like '%TEST-STALE-1%',   'เคส 12 ล้มเหลว: ต้องมีงานค้างอัปเดตในรายการ';
+  assert v_msg like '%รอตรวจ%',         'เคส 12 ล้มเหลว: ต้องมีหัวข้องานรอตรวจ';
+  assert v_msg like '%TEST-REVIEW-1%',  'เคส 12 ล้มเหลว: ต้องมีงานรอตรวจในรายการ';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- เคส 13 : งานอนุมัติแล้วต้องไม่โผล่ในสรุป แม้จะเลยกำหนดไปแล้ว
+-- ---------------------------------------------------------------------------
+insert into tasks (code, project_id, title, assigned_to_user_id,
+                   created_at, deadline_at, last_updated_at, status, completed_at)
+values ('TEST-DONE-1', '00000000-0000-0000-0000-0000000000c1', 'งานปิดแล้ว',
+        '00000000-0000-0000-0000-0000000000a2',
+        now() - interval '10 days', now() - interval '5 days', now(), 'approved', now());
+
+do $$
+begin
+  assert app_build_line_digest() not like '%TEST-DONE-1%',
+    'เคส 13 ล้มเหลว: งานที่อนุมัติแล้วต้องไม่โผล่ในสรุป';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- เคส 14 : เกิน 10 ใบต่อหมวด -> ตัดที่ 10 แล้วบอกว่าเหลืออีกกี่ใบ
+-- ---------------------------------------------------------------------------
+insert into tasks (code, project_id, title, assigned_to_user_id,
+                   created_at, deadline_at, last_updated_at, status)
+select 'TEST-BULK-' || g, '00000000-0000-0000-0000-0000000000c1', 'งานล้นหมวด ' || g,
+       '00000000-0000-0000-0000-0000000000a2',
+       now() - interval '10 days', now() - interval '3 days', now(), 'pending_submission'
+from generate_series(1, 14) g;
+
+do $$
+declare
+  v_msg   text;
+  v_lines integer;
+begin
+  v_msg := app_build_line_digest();
+  -- รวมงานเลยกำหนด 15 ใบ (TEST-OVERDUE-1 + TEST-BULK-1..14) แสดง 10 เหลืออีก 5
+  assert v_msg like '%และอีก 5 ใบ%',
+    format('เคส 14 ล้มเหลว: ต้องมีข้อความ "และอีก 5 ใบ" แต่ได้ข้อความว่า %s', v_msg);
+
+  select count(*) into v_lines
+    from regexp_split_to_table(v_msg, E'\n') l
+   where l like '• [TEST-%';
+  assert v_lines <= 10 + 2,
+    format('เคส 14 ล้มเหลว: แต่ละหมวดต้องแสดงไม่เกิน 10 รายการ แต่นับได้ %s บรรทัด', v_lines);
+
+  assert char_length(v_msg) <= 4900,
+    'เคส 14 ล้มเหลว: ข้อความต้องไม่เกิน 4,900 ตัวอักษร';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- เคส 15 : เรียก enqueue ซ้ำในวันเดียวกัน -> ยังมีแถวเดียว
+-- ---------------------------------------------------------------------------
+delete from line_outbox;
+
+do $$
+declare
+  v_first  uuid;
+  v_second uuid;
+begin
+  v_first  := app_enqueue_line_digest();
+  v_second := app_enqueue_line_digest();
+
+  assert v_first is not null, 'เคส 15 ล้มเหลว: ครั้งแรกต้องสร้างแถวได้';
+  assert v_second is null,    'เคส 15 ล้มเหลว: ครั้งที่สองต้องไม่สร้างแถวซ้ำ';
+  assert (select count(*) from line_outbox where kind = 'digest') = 1,
+    'เคส 15 ล้มเหลว: สรุปรายวันต้องมีแถวเดียวต่อวัน';
+end $$;
+
 rollback;
 
 \echo 'ผ่านทุกเคส'
