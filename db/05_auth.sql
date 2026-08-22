@@ -144,8 +144,12 @@ $$;
 -- -----------------------------------------------------------------------------
 -- app_my_profile : โปรไฟล์ของ session ปัจจุบัน (ฝั่งหน้าเว็บเรียกหลังล็อกอิน)
 -- ต้องเป็น security definer เพราะผู้ใช้สถานะ pending ยังอ่านตารางไม่ได้ตาม RLS
+--
+-- ต้อง drop ก่อน create เพราะ create or replace function เปลี่ยน return type ไม่ได้
+-- (คอลัมน์ line_notify_enabled ถูกลบไปพร้อม LINE Notify — ดู 09_line_cleanup.sql)
 -- -----------------------------------------------------------------------------
-create or replace function app_my_profile()
+drop function if exists app_my_profile();
+create function app_my_profile()
 returns table (
   id                    uuid,
   username              text,
@@ -155,12 +159,11 @@ returns table (
   status                user_status,
   avatar_url            text,
   no_update_alert_hours integer,
-  line_notify_enabled   boolean,
   created_at            timestamptz
 )
 language sql stable security definer set search_path = public as $$
   select u.id, u.username::text, u.full_name, u.email::text, u.role, u.status,
-         u.avatar_url, u.no_update_alert_hours, u.line_notify_enabled, u.created_at
+         u.avatar_url, u.no_update_alert_hours, u.created_at
   from users u
   where u.auth_user_id = auth.uid();
 $$;

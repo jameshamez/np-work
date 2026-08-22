@@ -102,7 +102,7 @@ export interface AppContextType {
   resetDataToDefault: () => void;
   updateUserNotificationSettings: (
     userId: string,
-    settings: { noUpdateAlertHours?: number; lineNotifyEnabled?: boolean; lineNotifyToken?: string }
+    settings: { noUpdateAlertHours?: number }
   ) => void;
   checkNoUpdateTasksAndNotify: (targetUserIds?: string[]) => number;
   sendTestLineMessage: () => void;
@@ -542,7 +542,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateUserNotificationSettings = (
     userId: string,
-    settings: { noUpdateAlertHours?: number; lineNotifyEnabled?: boolean; lineNotifyToken?: string }
+    settings: { noUpdateAlertHours?: number }
   ) => {
     void run(async () => {
       await api.updateUserSettings(db, userId, settings);

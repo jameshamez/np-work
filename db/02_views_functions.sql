@@ -534,6 +534,9 @@ group by t.id, t.code, t.title, p.name, t.holder_name,
 -- -----------------------------------------------------------------------------
 -- v_tasks_needing_alert : งานที่เงียบเกินเกณฑ์ของเจ้าของงาน (no_update_alert_hours)
 -- ใช้ป้อน job แจ้งเตือน LINE — กรองงานที่เพิ่งเตือนไปแล้วออก
+-- (view นี้ถูก drop cascade ไว้แล้วในบล็อกด้านบนของ SECTION 2 จึงสร้างใหม่ตรงนี้
+--  ได้ปกติแม้จะตัดคอลัมน์ u.line_notify_enabled ออก — คอลัมน์นี้ถูกลบไปพร้อม
+--  LINE Notify ดู 09_line_cleanup.sql)
 -- -----------------------------------------------------------------------------
 create or replace view v_tasks_needing_alert
 with (security_invoker = true) as
@@ -547,7 +550,6 @@ select
   u.id   as owner_user_id,
   u.full_name as owner_name,
   u.no_update_alert_hours,
-  u.line_notify_enabled,
   round(extract(epoch from (now() - t.last_updated_at)) / 3600.0, 1) as hours_since_update
 from tasks t
 join users u on u.id = t.assigned_to_user_id

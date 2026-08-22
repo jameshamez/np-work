@@ -11,8 +11,6 @@ export interface User {
   avatarUrl?: string;
   createdAt: string;
   noUpdateAlertHours?: number; // default 4 hours
-  lineNotifyEnabled?: boolean; // default true
-  lineNotifyToken?: string;
 }
 
 export interface Project {

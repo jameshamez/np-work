@@ -53,8 +53,6 @@ export const mapUser = (r: Row): User => ({
   avatarUrl: opt(r.avatar_url),
   createdAt: r.created_at,
   noUpdateAlertHours: opt(r.no_update_alert_hours),
-  lineNotifyEnabled: opt(r.line_notify_enabled),
-  lineNotifyToken: opt(r.line_notify_token),
 });
 
 export const mapProject = (r: Row): Project => ({
@@ -719,12 +717,10 @@ export async function insertNotifications(
 export async function updateUserSettings(
   db: SupabaseClient,
   userId: string,
-  settings: { noUpdateAlertHours?: number; lineNotifyEnabled?: boolean; lineNotifyToken?: string }
+  settings: { noUpdateAlertHours?: number }
 ): Promise<void> {
   const fields: Row = {};
   if (settings.noUpdateAlertHours !== undefined) fields.no_update_alert_hours = settings.noUpdateAlertHours;
-  if (settings.lineNotifyEnabled !== undefined) fields.line_notify_enabled = settings.lineNotifyEnabled;
-  if (settings.lineNotifyToken !== undefined) fields.line_notify_token = settings.lineNotifyToken;
   if (Object.keys(fields).length === 0) return;
 
   const { error } = await db.from('users').update(fields).eq('id', userId);

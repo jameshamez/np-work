@@ -29,6 +29,5 @@ export interface AuthProfile {
   status: 'pending' | 'approved' | 'rejected';
   avatar_url: string | null;
   no_update_alert_hours: number;
-  line_notify_enabled: boolean;
   created_at: string;
 }
