@@ -31,7 +31,25 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'ไม่ได้รับอนุญาต' }, 401);
   }
   if (!token || !groupId) {
-    return json({ error: 'ยังไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN หรือ LINE_GROUP_ID' }, 500);
+    // ทาง config หายเงียบสนิทไม่ได้ — แถวที่รอส่งต้องมี last_error ให้แอดมินเห็น
+    // ไม่งั้นแยกไม่ออกจากตอนที่ระบบว่างงานจริง ๆ
+    const msg = 'ยังไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN หรือ LINE_GROUP_ID';
+    try {
+      const { error: markError } = await db
+        .from('line_outbox')
+        .update({ last_error: msg })
+        .eq('status', 'pending');
+      if (markError) {
+        console.error(`[line-dispatch] เขียน last_error ไม่ลง (ตั้งค่า LINE ไม่ครบ): ${markError.message}`);
+      }
+    } catch (e) {
+      // ถ้า SUPABASE_URL/SERVICE_ROLE_KEY หายไปด้วย db client เองอาจใช้งานไม่ได้
+      // กันไว้ไม่ให้ throw ทับ response 500 ที่ตั้งใจจะคืนอยู่แล้ว
+      console.error(
+        `[line-dispatch] เขียน last_error ไม่ลง (ตั้งค่า LINE ไม่ครบ): ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    return json({ error: msg }, 500);
   }
 
   // 1) สวิตช์ใหญ่
@@ -59,10 +77,13 @@ Deno.serve(async (req: Request) => {
   if ((sentThisMonth ?? 0) >= config.monthly_cap) {
     // ไม่เปลี่ยนสถานะแถว ปล่อยค้างไว้ให้ส่งต่อเดือนหน้าได้
     // แต่เขียน last_error ไว้ให้แอดมินเห็นว่าทำไมเงียบ — ห้ามเงียบหายเฉย ๆ
-    await db
+    const { error: markError } = await db
       .from('line_outbox')
       .update({ last_error: 'ถึงเพดานข้อความรายเดือนแล้ว หยุดส่งชั่วคราว' })
       .eq('status', 'pending');
+    if (markError) {
+      console.error(`[line-dispatch] เขียน last_error ไม่ลง (ถึงเพดานรายเดือน): ${markError.message}`);
+    }
     return json({ skipped: 'ถึงเพดานรายเดือน', sentThisMonth, cap: config.monthly_cap });
   }
 
@@ -98,14 +119,19 @@ Deno.serve(async (req: Request) => {
     }
 
     if (status >= 200 && status < 300) {
-      await db
+      const { error: markError } = await db
         .from('line_outbox')
         .update({ status: 'sent', sent_at: new Date().toISOString(), last_error: null })
         .eq('id', row.id);
+      if (markError) {
+        // อันตรายที่สุดในไฟล์นี้: ส่งเข้า LINE ไปแล้วแต่บันทึกไม่ลง
+        // แถวจะถูกเคลมซ้ำรอบหน้าและกลุ่มจะได้ข้อความซ้ำ ต้องเห็นใน log ให้ได้
+        console.error(`[line-dispatch] ส่งสำเร็จแต่บันทึกสถานะไม่ลง row=${row.id}: ${markError.message}`);
+      }
       sent++;
     } else {
       const note = shouldRetry(status) ? 'จะลองใหม่' : 'ไม่ลองใหม่ ต้องแก้ที่ต้นเหตุ';
-      await db
+      const { error: markError } = await db
         .from('line_outbox')
         .update({
           status: 'failed',
@@ -114,6 +140,9 @@ Deno.serve(async (req: Request) => {
           ...(shouldRetry(status) ? {} : { attempts: 99 }),
         })
         .eq('id', row.id);
+      if (markError) {
+        console.error(`[line-dispatch] บันทึกสถานะ failed ไม่ลง row=${row.id}: ${markError.message}`);
+      }
       failed++;
     }
   }
