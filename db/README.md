@@ -20,6 +20,7 @@
 | `07_line_integration.sql` | แจ้งเตือนเข้ากลุ่ม LINE — ตาราง `line_config` / `line_outbox`, trigger งานตีกลับ, ข้อความสรุปรายวัน — รันซ้ำได้ |
 | `08_line_schedule.sql` | ตารางเวลา pg_cron ของระบบ LINE — **ต้องแก้ `[PROJECT_REF]` ในไฟล์ก่อนรัน** |
 | `09_line_cleanup.sql` | ลบคอลัมน์ `line_notify_token` / `line_notify_enabled` ที่ตายไปพร้อม LINE Notify — รันหลัง deploy แอปเวอร์ชันใหม่ |
+| `10_task_code.sql` | ออกรหัสการ์ดงานจากฝั่งฐานข้อมูล (`#NP-MM/YY-NNN` เริ่มนับใหม่ทุกเดือน) แก้ปัญหารหัสซ้ำเมื่อหลายคนสร้างพร้อมกัน — รันซ้ำได้ |
 
 ต้องใช้ **PostgreSQL 15 ขึ้นไป** (ใช้ `security_invoker` ของ view) ทดสอบแล้วบน PostgreSQL 17.10
 

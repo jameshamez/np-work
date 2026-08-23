@@ -431,7 +431,6 @@ export const KUProjectDashboardView: React.FC<KUProjectDashboardViewProps> = ({
     e.preventDefault();
     if (!newCardTitle.trim()) return;
 
-    const nextCode = `KU-${String(kuTasks.length + 1).padStart(3, '0')}`;
     const numBudget = parseFloat(newCardBudget.replace(/,/g, '')) || 1200000;
 
     const selectedFlow = flowTemplates.find(f => f.id === newCardSelectedFlowId);
@@ -448,7 +447,6 @@ export const KUProjectDashboardView: React.FC<KUProjectDashboardViewProps> = ({
         ];
 
     createTask({
-      code: nextCode,
       projectId: 'prj-chain-tsri',
       title: newCardTitle,
       description: selectedFlow
@@ -486,7 +484,7 @@ export const KUProjectDashboardView: React.FC<KUProjectDashboardViewProps> = ({
     setNewCardTitle('');
     setNewCardSelectedFlowId('');
     setShowQuickCreateModal(false);
-    setToastMessage(`สร้างการ์ดโครงการรหัส ${nextCode} สำเร็จ!`);
+    setToastMessage('สร้างการ์ดโครงการสำเร็จ! ระบบออกรหัสให้อัตโนมัติแล้ว');
     setTimeout(() => setToastMessage(null), 4000);
   };
 

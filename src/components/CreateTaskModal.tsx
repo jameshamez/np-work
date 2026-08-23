@@ -11,26 +11,9 @@ interface CreateTaskModalProps {
 }
 
 export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => {
-  const { createTask, saveTaskDraft, projects, users, currentUser, addProject, flowTemplates, tasks } = useApp();
-
-  const generateTaskCode = (cat: ProjectCategory) => {
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const year = String(now.getFullYear()).slice(-2);
-    const dateStr = `${month}/${year}`;
-    const seq = String(tasks.length + 1).padStart(3, '0');
-
-    if (cat === 'ku_university') {
-      return `#PJ-${dateStr}-${seq}`;
-    } else if (cat === 'drawing_draft') {
-      return `#DWG-${dateStr}-${seq}`;
-    } else {
-      return `#NP-${dateStr}-${seq}`;
-    }
-  };
+  const { createTask, saveTaskDraft, projects, users, currentUser, addProject, flowTemplates } = useApp();
 
   const [category, setCategory] = useState<ProjectCategory>('general');
-  const [taskCode, setTaskCode] = useState<string>(() => generateTaskCode('general'));
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [selectedFlowId, setSelectedFlowId] = useState<string>('');
@@ -120,7 +103,6 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
 
   const handleSelectCategory = (cat: ProjectCategory) => {
     setCategory(cat);
-    setTaskCode(generateTaskCode(cat));
     if (cat === 'ku_university') {
       if (!title) {
         setTitle('ข้อเสนอโครงการวิจัยและพัฒนาระบบข้อมูล');
@@ -226,7 +208,6 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
     const targetProjId = await resolveTargetProjectId();
 
     createTask({
-      code: taskCode,
       title: title.trim() || 'การ์ดงานใหม่',
       description: description.trim(),
       projectId: targetProjId,
@@ -311,15 +292,11 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
           <div className="space-y-1">
             <label className="block text-xs font-bold text-gray-800 flex items-center justify-between">
               <span>รหัสการ์ดงาน</span>
-              <span className="text-[10px] text-gray-500 font-normal">(Run ออโต้ ไม่สามารถแก้ไขได้)</span>
+              <span className="text-[10px] text-gray-500 font-normal">(ระบบกำหนดให้ตอนบันทึก)</span>
             </label>
-            <input
-              type="text"
-              value={taskCode}
-              readOnly
-              disabled
-              className="w-full px-3.5 py-2 text-xs font-extrabold border border-gray-200 rounded-xl bg-gray-100 text-gray-800 cursor-not-allowed select-none shadow-inner"
-            />
+            <div className="w-full px-3.5 py-2 text-xs font-medium border border-gray-200 rounded-xl bg-gray-100 text-gray-500 select-none shadow-inner">
+              ระบบจะออกรหัสให้อัตโนมัติเมื่อกดบันทึก
+            </div>
           </div>
 
           {/* Project & Assignee */}
