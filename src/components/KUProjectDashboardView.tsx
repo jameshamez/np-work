@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Task, KUProposalStatus, User } from '../types';
 import { KUMilestonesView } from './KUMilestonesView';
+import { DeleteTaskConfirmModal } from './DeleteTaskConfirmModal';
 import {
   GraduationCap,
   Plus,
@@ -24,7 +25,6 @@ import {
   ChevronDown,
   Lock,
   Trash2,
-  AlertTriangle,
   X,
 } from 'lucide-react';
 
@@ -225,7 +225,10 @@ export const KUProjectDashboardView: React.FC<KUProjectDashboardViewProps> = ({
   onOpenDetailModal,
   onOpenCreateFlowModal,
 }) => {
-  const { tasks, users, createTask, updateKUStatus, flowTemplates, deleteTask } = useApp();
+  const { tasks, users, createTask, updateKUStatus, flowTemplates, deleteTask, currentUser } = useApp();
+
+  // ลบการ์ดถาวรได้เฉพาะ admin ขึ้นไป — ด่านจริงคือ policy tasks_delete_admin ที่ฐานข้อมูล
+  const canDelete = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
   // Toast notification banner state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -534,15 +537,17 @@ export const KUProjectDashboardView: React.FC<KUProjectDashboardViewProps> = ({
             </div>
 
             <div className="flex items-center space-x-2 shrink-0 self-start md:self-auto">
-              <button
-                type="button"
-                onClick={() => handleOpenDeleteConfirm(currentTask)}
-                className="px-3.5 py-1.5 border border-red-200 hover:border-red-400 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center space-x-1.5 cursor-pointer"
-                title="ยกเลิกการ์ดกรณีสร้างผิด (ลบการ์ดโครงการออก)"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-red-600 shrink-0" />
-                <span>ยกเลิก</span>
-              </button>
+              {canDelete && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenDeleteConfirm(currentTask)}
+                  className="px-3.5 py-1.5 border border-red-200 hover:border-red-400 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center space-x-1.5 cursor-pointer"
+                  title="ยกเลิกการ์ดกรณีสร้างผิด (ลบการ์ดโครงการออก) — เฉพาะผู้ดูแลระบบ"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                  <span>ยกเลิก</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1512,68 +1517,15 @@ export const KUProjectDashboardView: React.FC<KUProjectDashboardViewProps> = ({
 
       {/* Pop up ยืนยันการลบการ์ดโครงการกรณีสร้างผิด */}
       {showDeleteConfirmModal && taskToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-red-100 space-y-5 animate-in zoom-in-95 duration-200">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-3 bg-red-100 text-red-600 rounded-2xl shrink-0">
-                  <AlertTriangle className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-gray-900">
-                    ยืนยันการลบการ์ดโครงการ
-                  </h3>
-                  <p className="text-xs text-red-600 font-bold mt-0.5">
-                    รหัสการ์ด #{taskToDelete.code}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDeleteConfirmModal(false);
-                  setTaskToDelete(null);
-                }}
-                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="bg-red-50/70 border border-red-200/80 p-3.5 rounded-2xl text-xs text-red-900 space-y-1.5 font-medium">
-              <p className="font-extrabold text-red-800 text-sm">
-                คุณแน่ใจหรือไม่ว่าต้องการลบการ์ดนี้?
-              </p>
-              <p className="text-gray-700">
-                การ์ดโครงการ: <span className="font-bold text-gray-900">"{taskToDelete.title}"</span>
-              </p>
-              <p className="text-red-700 font-bold text-[11px]">
-                * เมื่อยืนยันการลบแล้ว ข้อมูลการ์ดทั้งหมดจะถูกลบออกจากระบบ และไม่สามารถกู้คืนได้
-              </p>
-            </div>
-
-            <div className="flex items-center justify-end space-x-2.5 pt-2 border-t border-gray-100">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDeleteConfirmModal(false);
-                  setTaskToDelete(null);
-                }}
-                className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center space-x-1.5 cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>ยืนยัน ลบ</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteTaskConfirmModal
+          code={taskToDelete.code}
+          title={taskToDelete.title}
+          onCancel={() => {
+            setShowDeleteConfirmModal(false);
+            setTaskToDelete(null);
+          }}
+          onConfirm={handleConfirmDelete}
+        />
       )}
 
     </div>

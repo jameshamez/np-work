@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { KUMilestonesView } from './KUMilestonesView';
 import { ImageAnnotationViewer } from './ImageAnnotationViewer';
 import { VoiceInputButton } from './VoiceInputButton';
+import { DeleteTaskConfirmModal } from './DeleteTaskConfirmModal';
 import {
   X,
   Clock,
@@ -44,7 +45,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   onClose,
   onOpenSubmitModal,
 }) => {
-  const { currentUser, updateChecklist, logs, approveTask, returnTask, addAnnotation, users, updateTaskFinancials } = useApp();
+  const { currentUser, updateChecklist, logs, approveTask, returnTask, addAnnotation, users, updateTaskFinancials, deleteTask } = useApp();
 
   const [activeTab, setActiveTab] = useState<'info' | 'ku_flow' | 'annotation' | 'financials' | 'attachments' | 'history'>(
     task?.category === 'ku_university' ? 'ku_flow' : 'info'
@@ -96,12 +97,17 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   });
   const [popupComment, setPopupComment] = useState('');
 
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   if (!task) return null;
 
   const taskLogs = logs
     .filter(l => l.taskId === task.id)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const canReview = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+
+  // ลบการ์ดถาวรได้เฉพาะ admin ขึ้นไป — ด่านจริงคือ policy tasks_delete_admin ที่ฐานข้อมูล
+  const canDelete = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
   // Find image attachment if any for blueprint annotation
   const imageAttachment = task.attachments.find(a => a.fileType === 'image');
@@ -187,6 +193,18 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               <Printer className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">ส่งออก Report รายวัน</span>
             </button>
+
+            {canDelete && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-black rounded-xl shadow-xs transition-all flex items-center space-x-1 cursor-pointer"
+                title="ลบการ์ดงานนี้ถาวร (เฉพาะผู้ดูแลระบบ)"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">ลบการ์ด</span>
+              </button>
+            )}
 
             <button
               onClick={onClose}
@@ -1183,6 +1201,20 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
           </div>
         </div>
+      )}
+
+      {/* ยืนยันลบการ์ดงาน — ลบสำเร็จแล้วปิด modal เพราะงานที่เปิดอยู่หายไปจาก state แล้ว */}
+      {showDeleteConfirm && (
+        <DeleteTaskConfirmModal
+          code={task.code}
+          title={task.title}
+          onCancel={() => setShowDeleteConfirm(false)}
+          onConfirm={() => {
+            deleteTask(task.id);
+            setShowDeleteConfirm(false);
+            onClose();
+          }}
+        />
       )}
 
     </div>

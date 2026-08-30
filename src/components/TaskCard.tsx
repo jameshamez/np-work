@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Task } from '../types';
 import { useApp } from '../context/AppContext';
+import { DeleteTaskConfirmModal } from './DeleteTaskConfirmModal';
 import {
   Clock,
   Paperclip,
@@ -13,6 +14,7 @@ import {
   AlertTriangle,
   GraduationCap,
   PenTool,
+  Trash2,
 } from 'lucide-react';
 
 interface TaskCardProps {
@@ -26,7 +28,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onOpenSubmitModal,
   onOpenDetailModal,
 }) => {
-  const { currentUser, approveTask, returnTask, duplicateTask, logs } = useApp();
+  const { currentUser, approveTask, returnTask, duplicateTask, deleteTask, logs } = useApp();
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Find latest log for delegation badge info
   const taskLogs = logs.filter(l => l.taskId === task.id);
@@ -71,6 +75,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     latestLog && latestLog.actionByUserId !== latestLog.onBehalfOfUserId;
 
   const canReview = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+
+  // ลบการ์ดถาวรได้เฉพาะ admin ขึ้นไป — ด่านจริงคือ policy tasks_delete_admin ที่ฐานข้อมูล
+  const canDelete = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
   return (
     <div className={`bg-white rounded-2xl border transition-all duration-200 flex flex-col justify-between overflow-hidden group shadow-xs hover:shadow-md ${
@@ -129,6 +136,18 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             >
               <Copy className="w-3.5 h-3.5" />
             </button>
+            {canDelete && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDeleteConfirm(true);
+                }}
+                className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                title="ลบการ์ดงานนี้ถาวร (เฉพาะผู้ดูแลระบบ)"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -231,6 +250,18 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             <Eye className="w-4 h-4" />
           </button>
         </div>
+
+      {showDeleteConfirm && (
+        <DeleteTaskConfirmModal
+          code={task.code}
+          title={task.title}
+          onCancel={() => setShowDeleteConfirm(false)}
+          onConfirm={() => {
+            deleteTask(task.id);
+            setShowDeleteConfirm(false);
+          }}
+        />
+      )}
 
     </div>
   );
