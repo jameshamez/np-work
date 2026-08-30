@@ -21,6 +21,8 @@
 | `08_line_schedule.sql` | ตารางเวลา pg_cron ของระบบ LINE — **ต้องแก้ `[PROJECT_REF]` ในไฟล์ก่อนรัน** |
 | `09_line_cleanup.sql` | ลบคอลัมน์ `line_notify_token` / `line_notify_enabled` ที่ตายไปพร้อม LINE Notify — รันหลัง deploy แอปเวอร์ชันใหม่ |
 | `10_task_code.sql` | ออกรหัสการ์ดงานจากฝั่งฐานข้อมูล (`#NP-MM/YY-NNN` เริ่มนับใหม่ทุกเดือน) แก้ปัญหารหัสซ้ำเมื่อหลายคนสร้างพร้อมกัน — รันซ้ำได้ |
+| `11_task_delete_cascade.sql` | ปลดล็อกให้แอดมินลบการ์ดงานได้จริง — เดิม trigger append-only ของ `task_logs` บล็อกการลบแบบ cascade ทำให้ลบไม่ผ่านเลย — รันซ้ำได้ |
+| `12_task_deletion_log.sql` | ตาราง `task_deletion_log` เก็บหลักฐานว่าใครลบการ์ดงานใบไหนเมื่อไหร่ — ต้องรันคู่กับ `11` เสมอ ไม่งั้นลบแล้วไม่เหลือร่องรอย — รันซ้ำได้ |
 
 ต้องใช้ **PostgreSQL 15 ขึ้นไป** (ใช้ `security_invoker` ของ view) ทดสอบแล้วบน PostgreSQL 17.10
 
@@ -47,8 +49,15 @@ psql "postgresql://postgres:[รหัสผ่าน]@db.[project-ref].supabase
   -f db/05_auth.sql \
   -f db/06_patch_notifications.sql \
   -f db/07_line_integration.sql \
-  -f db/09_line_cleanup.sql
+  -f db/09_line_cleanup.sql \
+  -f db/10_task_code.sql \
+  -f db/11_task_delete_cascade.sql \
+  -f db/12_task_deletion_log.sql
 ```
+
+> **`11` กับ `12` ต้องมาคู่กัน** — `11` เปิดให้ลบการ์ดงานได้ ส่วน `12` คือตัวที่บันทึกว่าใครลบ
+> ถ้ารันแค่ `11` ระบบจะลบงานได้โดยไม่เหลือหลักฐานเลย และถ้าอัปหน้าเว็บก่อนรัน `12`
+> หน้า Audit Log จะไม่มีแท็บประวัติการลบให้ดู (แต่ส่วนอื่นของระบบยังทำงานปกติ)
 
 > ถ้าใช้งานจริง (ไม่ต้องการข้อมูลตัวอย่าง) ให้ข้าม `04_seed.sql`
 
@@ -139,6 +148,9 @@ Sign In / Providers > ปิด **Confirm email**
 - เฉพาะ `super_admin` เท่านั้นที่แต่งตั้ง admin ได้
 - ข้อมูลการเงิน (`task_financials`) เห็นได้เฉพาะผู้ที่เกี่ยวข้องกับงานนั้นและ admin
 - `task_logs` เป็น append-only — แก้หรือลบประวัติย้อนหลังไม่ได้ แม้แต่ระดับฐานข้อมูล
+  ยกเว้นกรณีเดียวคือถูกลบตามการ์ดงานแม่ที่แอดมินสั่งลบ (`on delete cascade` ดู `11_task_delete_cascade.sql`)
+- `task_deletion_log` เป็น append-only แบบไม่มีข้อยกเว้น — ห้าม UPDATE/DELETE ทุกกรณี
+  ทุกครั้งที่การ์ดงานถูกลบจะมีแถวบันทึกไว้เสมอ รวมถึงตอนลบจาก SQL Editor (จะระบุว่าไม่ทราบผู้ลบ)
 
 ---
 

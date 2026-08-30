@@ -107,6 +107,27 @@ export interface TaskLog {
   createdAt: string;
 }
 
+/**
+ * ประวัติการลบการ์ดงาน — snapshot ที่เก็บไว้นอกวงจรการลบ
+ * ไม่มี taskId ให้กดเปิดดูได้อีกแล้ว เพราะการ์ดถูกลบไปจริง ๆ
+ */
+export interface TaskDeletionLog {
+  id: string;
+  taskId: string;
+  taskCode: string;
+  taskTitle: string;
+  projectName: string;
+  assignedToName: string;
+  lastStatus: TaskStatus;
+  taskCreatedAt: string;
+  /** ว่างได้ ถ้าถูกลบจากนอกหน้าเว็บ (SQL Editor / service_role) */
+  deletedByUserId?: string;
+  deletedByName: string;
+  deletedAt: string;
+  taskLogsRemoved: number;
+  attachmentsRemoved: number;
+}
+
 export interface TwoTierFinancials {
   projectInstallment: number;      // ยอดเงินงวดสัญญาโครงการหลัก
   approvedRemuneration: number;   // ค่าตอบแทน (อนุมัติเบิกจริง)

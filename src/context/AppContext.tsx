@@ -4,6 +4,7 @@ import {
   Project,
   Task,
   TaskLog,
+  TaskDeletionLog,
   NotificationItem,
   Attachment,
   ProjectCategory,
@@ -25,6 +26,8 @@ export interface AppContextType {
   projects: Project[];
   tasks: Task[];
   logs: TaskLog[];
+  /** ประวัติการลบการ์ดงาน — ผู้ใช้ทั่วไปจะได้ลิสต์ว่างตาม RLS */
+  deletionLogs: TaskDeletionLog[];
   notifications: NotificationItem[];
   flowTemplates: FlowTemplate[];
   lineEnabled: boolean;
@@ -132,6 +135,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [logs, setLogs] = useState<TaskLog[]>([]);
+  const [deletionLogs, setDeletionLogs] = useState<TaskDeletionLog[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [flowTemplates, setFlowTemplates] = useState<FlowTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,6 +198,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLogs(snapshot.logs);
     setNotifications(snapshot.notifications);
     setFlowTemplates(snapshot.flowTemplates);
+    setDeletionLogs(snapshot.deletionLogs);
   }, [db]);
 
   useEffect(() => {
@@ -209,6 +214,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setLogs(snapshot.logs);
         setNotifications(snapshot.notifications);
         setFlowTemplates(snapshot.flowTemplates);
+        setDeletionLogs(snapshot.deletionLogs);
       } catch (e) {
         if (active) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -345,6 +351,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     void run(async () => {
       await api.deleteTask(db, taskId);
       setTasks(prev => prev.filter(t => t.id !== taskId));
+      // ประวัติของงานใบนี้หายไปพร้อมกัน และมีแถวใหม่โผล่ในประวัติการลบ
+      setLogs(prev => prev.filter(l => l.taskId !== taskId));
+      // งานถูกลบสำเร็จไปแล้ว ถ้าดึงประวัติการลบมาแสดงไม่ได้ก็ไม่ควรขึ้นว่า "ลบไม่สำเร็จ"
+      try {
+        setDeletionLogs(await api.fetchDeletionLogs(db));
+      } catch (e) {
+        console.warn(e instanceof Error ? e.message : String(e));
+      }
     });
   };
 
@@ -744,6 +758,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         projects,
         tasks,
         logs,
+        deletionLogs,
         notifications,
         flowTemplates,
         lineEnabled,

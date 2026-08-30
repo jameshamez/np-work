@@ -17,6 +17,7 @@ import {
   ProjectCategory,
   ProjectMilestone,
   Task,
+  TaskDeletionLog,
   TaskLog,
   TaskStatus,
   TwoTierFinancials,
@@ -35,6 +36,7 @@ export interface AppSnapshot {
   logs: TaskLog[];
   notifications: NotificationItem[];
   flowTemplates: FlowTemplate[];
+  deletionLogs: TaskDeletionLog[];
 }
 
 // -----------------------------------------------------------------------------
@@ -134,6 +136,22 @@ const mapLog = (r: Row, attachments: Attachment[]): TaskLog => ({
   createdAt: r.created_at,
 });
 
+export const mapDeletionLog = (r: Row): TaskDeletionLog => ({
+  id: r.id,
+  taskId: r.task_id,
+  taskCode: r.task_code,
+  taskTitle: r.task_title,
+  projectName: r.project_name ?? '',
+  assignedToName: r.assigned_to_name ?? '',
+  lastStatus: r.last_status,
+  taskCreatedAt: r.task_created_at,
+  deletedByUserId: opt(r.deleted_by_user_id),
+  deletedByName: r.deleted_by_name,
+  deletedAt: r.deleted_at,
+  taskLogsRemoved: num(r.task_logs_removed),
+  attachmentsRemoved: num(r.attachments_removed),
+});
+
 export const mapNotification = (r: Row): NotificationItem => ({
   id: r.id,
   recipientUserId: r.recipient_user_id,
@@ -227,6 +245,7 @@ export async function fetchSnapshot(db: SupabaseClient): Promise<AppSnapshot> {
     notifRes,
     flowRes,
     flowItemRes,
+    deletionRes,
   ] = await Promise.all([
     db.from('users').select('*').order('created_at'),
     db.from('projects').select('*').order('created_at'),
@@ -240,6 +259,8 @@ export async function fetchSnapshot(db: SupabaseClient): Promise<AppSnapshot> {
     db.from('notifications').select('*').order('created_at', { ascending: false }),
     db.from('flow_templates').select('*').order('created_at'),
     db.from('flow_template_items').select('*').order('sort_order'),
+    // ผู้ใช้ทั่วไปอ่านไม่ได้ตาม RLS จะได้ลิสต์ว่างกลับมา ไม่ใช่ error
+    db.from('task_deletion_log').select('*').order('deleted_at', { ascending: false }),
   ]);
 
   const failed = [
@@ -247,6 +268,13 @@ export async function fetchSnapshot(db: SupabaseClient): Promise<AppSnapshot> {
     attachmentRes, financialRes, logRes, notifRes, flowRes, flowItemRes,
   ].find(r => r.error);
   if (failed?.error) throw new Error(`โหลดข้อมูลไม่สำเร็จ: ${failed.error.message}`);
+
+  // ประวัติการลบเป็นข้อมูลเสริมของผู้ดูแล จงใจไม่รวมไว้ในการเช็คด้านบน
+  // ถ้ายังไม่ได้รัน db/12_task_deletion_log.sql ตารางจะยังไม่มี แล้ว PostgREST จะตอบ error
+  // ปล่อยให้ทั้งกระดานล่มเพราะเรื่องนี้ไม่คุ้ม — แจ้งไว้ใน console แล้วไปต่อด้วยลิสต์ว่าง
+  if (deletionRes.error) {
+    console.warn(`โหลดประวัติการลบไม่สำเร็จ: ${deletionRes.error.message}`);
+  }
 
   const attachmentRows = attachmentRes.data ?? [];
   const byTask = {
@@ -289,7 +317,18 @@ export async function fetchSnapshot(db: SupabaseClient): Promise<AppSnapshot> {
     logs,
     notifications: (notifRes.data ?? []).map(mapNotification),
     flowTemplates,
+    deletionLogs: (deletionRes.data ?? []).map(mapDeletionLog),
   };
+}
+
+/** ประวัติการลบการ์ดงาน — แอดมินขึ้นไปเท่านั้นที่ได้ข้อมูลกลับมา (RLS) */
+export async function fetchDeletionLogs(db: SupabaseClient): Promise<TaskDeletionLog[]> {
+  const { data, error } = await db
+    .from('task_deletion_log')
+    .select('*')
+    .order('deleted_at', { ascending: false });
+  if (error) throw new Error(`โหลดประวัติการลบไม่สำเร็จ: ${error.message}`);
+  return (data ?? []).map(mapDeletionLog);
 }
 
 /** โหลดงานใบเดียวพร้อมลูกทั้งหมด ใช้หลังแก้ไขเพื่อ refresh เฉพาะใบที่เปลี่ยน */
