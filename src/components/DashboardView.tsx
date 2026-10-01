@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { ExportReportModal } from './ExportReportModal';
 import {
   Printer,
   BarChart3,
@@ -13,6 +14,8 @@ import {
 
 export const DashboardView: React.FC = () => {
   const { tasks, users, projects } = useApp();
+  // ปุ่มพิมพ์ของหน้านี้ใช้รายงานผู้บริหารชุดเดียวกับปุ่ม "ส่งออกรายงาน" บนบอร์ด
+  const [isReportOpen, setIsReportOpen] = useState(false);
 
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter(t => t.status === 'approved').length;
@@ -83,7 +86,7 @@ export const DashboardView: React.FC = () => {
         </div>
 
         <button
-          onClick={() => window.print()}
+          onClick={() => setIsReportOpen(true)}
           className="px-4 py-2 text-xs font-bold text-white rounded-xl shadow-xs transition-all hover:opacity-90 inline-flex items-center space-x-1.5 print:hidden"
           style={{ backgroundColor: '#ef6c00' }}
         >
@@ -91,6 +94,14 @@ export const DashboardView: React.FC = () => {
           <span>พิมพ์รายงาน PDF</span>
         </button>
       </div>
+
+      <ExportReportModal
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+        tasks={tasks}
+        users={users}
+        projects={projects}
+      />
 
       {/* Overview Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

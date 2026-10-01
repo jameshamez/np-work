@@ -76,7 +76,26 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
     const monthTasks = filtered.filter(t => isInScope(t, monthR.start, monthR.end));
     const weekTasks = filtered.filter(t => isInScope(t, week.start, week.end));
 
+    // หน้า Dashboard ภาพรวมทั้งระบบ — ใช้งานทุกใบ (ไม่จำกัดช่วงเวลา) ตามหน้า Dashboard ในแอป
+    const allTasks = filtered.filter(t => !t.isDraft);
+    const finance = allTasks.map(t => t.twoTierFinancials).filter((f): f is NonNullable<typeof f> => !!f);
+    const staff = users.filter(u => u.status === 'approved' && (assigneeId === 'all' || u.id === assigneeId));
+    const allPersonRows = buildPersonRows(allTasks, now);
+
     return {
+      allTasks,
+      allCounts: countByStatus(allTasks),
+      allAvgLead: averageLeadDays(allTasks),
+      financeCards: finance.length,
+      financeInstallment: finance.reduce((a, f) => a + f.projectInstallment, 0),
+      financeApproved: finance.reduce((a, f) => a + f.approvedRemuneration + f.approvedMaterials + f.approvedExpenses, 0),
+      staffRows: staff.map(
+        u =>
+          allPersonRows.find(r => r.userId === u.id) ?? {
+            userId: u.id, name: cleanName(u.fullName), total: 0, done: 0, inProgress: 0, followUp: 0,
+            avgLeadDays: null, early: 0, onTime: 0, late: 0, overdue: 0,
+          }
+      ),
       week,
       month: monthR,
       monthTasks,
@@ -93,7 +112,7 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
       monthUrgent: followUpList(monthTasks),
       projectCount: scopedProjects.length,
     };
-  }, [tasks, projects, weekDay, year, month, assigneeId, projectId]);
+  }, [tasks, projects, users, weekDay, year, month, assigneeId, projectId]);
 
   if (!isOpen) return null;
 
@@ -222,6 +241,50 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
               : `งานอนุมัติแล้ว ${report.monthCounts.approved} จาก ${mTotal} งาน ขณะที่มี ${report.monthFollowUp} งานต้องติดตามเป็นพิเศษ` +
                 (report.avgLead !== null ? ` ระยะเวลาดำเนินงานเฉลี่ยของงานที่ปิดแล้วอยู่ที่ ${report.avgLead} วัน` : ' และยังไม่มีงานที่ปิดในช่วงนี้')}
           </Para>
+        </Sheet>
+
+        {/* หน้า Dashboard — ภาพรวมทั้งระบบ (ตรงกับหน้า Dashboard ในแอป) */}
+        <Sheet>
+          <SheetTitle>Dashboard ภาพรวมทั้งระบบ</SheetTitle>
+          <Para label="ขอบเขต">งานทุกใบในระบบ ไม่จำกัดช่วงเวลา (ไม่นับร่าง){filterNote && <> • {filterNote}</>}</Para>
+          <Kpis
+            items={[
+              { label: 'งานทั้งหมดในระบบ', value: report.allTasks.length, note: `จาก ${report.projectCount} โครงการ`, color: BRAND, bg: '#fff3e8' },
+              {
+                label: 'อนุมัติเสร็จสมบูรณ์', value: report.allCounts.approved,
+                note: `คิดเป็น ${report.allTasks.length > 0 ? Math.round((report.allCounts.approved / report.allTasks.length) * 100) : 0}%`,
+                color: STATUS_COLOR.approved, bg: '#eaf5ec',
+              },
+              { label: 'รอการตรวจอนุมัติ', value: report.allCounts.pending_review, note: 'รอผู้ตรวจดำเนินการ', color: STATUS_COLOR.pending_review, bg: '#fdf6e3' },
+              { label: 'ต้องติดตาม', value: report.allTasks.filter(needsFollowUp).length, note: 'ล่าช้า ไม่มีอัปเดต หรือตีกลับ', color: STATUS_COLOR.returned, bg: '#fcecec' },
+            ]}
+          />
+          <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
+            <div className="border border-slate-200 p-3">
+              <div className="text-xs font-bold text-slate-700">Lead time เฉลี่ย (งานที่ปิดแล้ว)</div>
+              <div className="mt-1 text-2xl font-black text-slate-800">{report.allAvgLead !== null ? `${report.allAvgLead} วัน` : '-'}</div>
+              <div className="text-[11px] text-slate-500">นับรวมวันหยุดเสาร์-อาทิตย์</div>
+            </div>
+            <div className="border border-slate-200 p-3">
+              <div className="text-xs font-bold text-slate-700">สรุปยอดเบิกจ่าย (เงินงวด 2 ระดับ)</div>
+              {report.financeCards === 0 ? (
+                <div className="mt-1 text-sm text-slate-500">ยังไม่มีการ์ดที่บันทึกเงินงวด</div>
+              ) : (
+                <>
+                  <div className="mt-1 text-2xl font-black text-slate-800">{report.financeInstallment.toLocaleString('th-TH')} บาท</div>
+                  <div className="text-[11px] text-slate-500">
+                    อนุมัติเบิกจริงรวม {report.financeApproved.toLocaleString('th-TH')} บาท • จาก {report.financeCards} การ์ด
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          <h3 className="mt-8 mb-1 text-base font-extrabold text-slate-800">รายงานสรุปผลการดำเนินงานรายบุคคล</h3>
+          <Table
+            head={['ผู้รับผิดชอบ', 'งานทั้งหมด', 'เสร็จสิ้น (อนุมัติ)', 'กำลังดำเนินงาน', 'ต้องติดตาม', 'Lead time เฉลี่ย']}
+            rows={report.staffRows.map(r => [r.name, r.total, r.done, r.inProgress, r.followUp, r.avgLeadDays ?? '-'])}
+            empty="ไม่มีผู้ใช้งาน"
+          />
         </Sheet>
 
         {/* หน้า 2 — ภาพรวมโครงการ */}
