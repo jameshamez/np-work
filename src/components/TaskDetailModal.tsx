@@ -190,11 +190,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
-      <div className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl border border-gray-100 overflow-hidden my-4 sm:my-8 flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-3xl max-w-3xl lg:max-w-4xl w-full shadow-2xl border border-gray-100 overflow-hidden my-4 sm:my-8 flex flex-col max-h-[90vh]">
         
         {/* Modal Header */}
-        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-gray-100 flex items-center justify-between shrink-0" style={{ backgroundColor: '#ffcc80' }}>
-          <div>
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-gray-100 flex items-center justify-between gap-3 shrink-0" style={{ backgroundColor: '#ffcc80' }}>
+          <div className="min-w-0 flex-1">
             <div className="flex items-center space-x-2 flex-wrap gap-1">
               <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-white text-amber-950">
                 #{task.code}
@@ -227,7 +227,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             </h3>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 shrink-0">
             {/* Page 19 Requirement: Export Daily Report button */}
             <button
               type="button"
@@ -261,10 +261,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         </div>
 
         {/* Modal Navigation Tabs */}
-        <div className="flex border-b border-gray-100 bg-gray-50/80 px-4 text-xs font-bold overflow-x-auto">
+        {/* แท็บขึ้นบรรทัดใหม่เมื่อจอแคบ แทนการเลื่อนแนวนอน — แถบเลื่อนบน Windows บังชื่อแท็บและซ่อนแท็บท้าย */}
+        <div className="flex flex-wrap border-b border-gray-100 bg-gray-50/80 px-2 sm:px-4 text-[11px] sm:text-xs font-bold shrink-0">
           <button
             onClick={() => setActiveTab('info')}
-            className={`py-3 px-3.5 border-b-2 transition-all shrink-0 flex items-center space-x-1.5 ${
+            className={`py-2.5 sm:py-3 px-2.5 sm:px-3.5 border-b-2 transition-all flex items-center space-x-1.5 whitespace-nowrap ${
               activeTab === 'info'
                 ? 'border-orange-600 text-orange-600 bg-white'
                 : 'border-transparent text-gray-500 hover:text-gray-800'
@@ -277,7 +278,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {task.category === 'ku_university' && (
             <button
               onClick={() => setActiveTab('ku_flow')}
-              className={`py-3 px-3.5 border-b-2 transition-all shrink-0 flex items-center space-x-1.5 ${
+              className={`py-2.5 sm:py-3 px-2.5 sm:px-3.5 border-b-2 transition-all flex items-center space-x-1.5 whitespace-nowrap ${
                 activeTab === 'ku_flow'
                   ? 'border-emerald-600 text-emerald-700 bg-emerald-50/60'
                   : 'border-transparent text-emerald-800 hover:text-emerald-950'
@@ -291,7 +292,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {/* Two-Tier Financials tab */}
           <button
             onClick={() => setActiveTab('financials')}
-            className={`py-3 px-3.5 border-b-2 transition-all shrink-0 flex items-center space-x-1.5 cursor-pointer ${
+            className={`py-2.5 sm:py-3 px-2.5 sm:px-3.5 border-b-2 transition-all flex items-center space-x-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'financials'
                 ? 'border-emerald-600 text-emerald-700 bg-emerald-50/60'
                 : 'border-transparent text-emerald-800 hover:text-emerald-950'
@@ -304,7 +305,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {/* Drawing Review & Pin Point Annotation tab */}
           <button
             onClick={() => setActiveTab('annotation')}
-            className={`py-3 px-3.5 border-b-2 transition-all shrink-0 flex items-center space-x-1.5 cursor-pointer ${
+            className={`py-2.5 sm:py-3 px-2.5 sm:px-3.5 border-b-2 transition-all flex items-center space-x-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'annotation'
                 ? 'border-purple-600 text-purple-700 bg-purple-50/60'
                 : 'border-transparent text-purple-800 hover:text-purple-950'
@@ -316,7 +317,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
           <button
             onClick={() => setActiveTab('attachments')}
-            className={`py-3 px-3.5 border-b-2 transition-all shrink-0 flex items-center space-x-1.5 ${
+            className={`py-2.5 sm:py-3 px-2.5 sm:px-3.5 border-b-2 transition-all flex items-center space-x-1.5 whitespace-nowrap ${
               activeTab === 'attachments'
                 ? 'border-orange-600 text-orange-600 bg-white'
                 : 'border-transparent text-gray-500 hover:text-gray-800'
@@ -328,7 +329,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
           <button
             onClick={() => setActiveTab('history')}
-            className={`py-3 px-3.5 border-b-2 transition-all shrink-0 flex items-center space-x-1.5 ${
+            className={`py-2.5 sm:py-3 px-2.5 sm:px-3.5 border-b-2 transition-all flex items-center space-x-1.5 whitespace-nowrap ${
               activeTab === 'history'
                 ? 'border-orange-600 text-orange-600 bg-white'
                 : 'border-transparent text-gray-500 hover:text-gray-800'
@@ -340,7 +341,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1">
           
           {/* Tab 1: Info & Checklists */}
           {activeTab === 'info' && (

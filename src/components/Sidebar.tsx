@@ -22,7 +22,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const pendingUsersCount = users.filter(u => u.status === 'pending').length;
 
   return (
-    <aside className="w-full md:w-72 bg-[#ffcc80] border-r border-[#ef6c00]/20 flex flex-col shrink-0 rounded-2xl shadow-lg overflow-hidden print:hidden transition-all">
+    <aside className="w-full lg:w-72 bg-[#ffcc80] border-r border-[#ef6c00]/20 flex flex-col shrink-0 rounded-2xl shadow-lg overflow-hidden print:hidden transition-all">
       
       {/* Sidebar Header (Theme #ef6c00) with mobile expand/collapse button */}
       <div className="p-4 sm:p-5 bg-[#ef6c00] text-white flex items-center justify-between">
@@ -39,7 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         {/* Mobile menu toggle button */}
         <button
           onClick={() => setIsMobileOpen(!isMobileOpen)}
-          className="md:hidden p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
+          className="lg:hidden p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
           aria-label="Toggle Navigation Menu"
         >
           <span>{isMobileOpen ? 'ซ่อนเมนู ▲' : 'เมนู ▼'}</span>
@@ -47,7 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       </div>
 
       {/* User Profile & Delegation Card (collapsible on mobile if closed, always visible on md+) */}
-      <div className={`p-4 border-b border-[#ef6c00]/10 ${isMobileOpen ? 'block' : 'hidden md:block'}`}>
+      <div className={`p-4 border-b border-[#ef6c00]/10 ${isMobileOpen ? 'block' : 'hidden lg:block'}`}>
         <div className="bg-white/50 backdrop-blur-xs p-3.5 rounded-xl border border-white/60 shadow-xs">
           <div className="flex items-center gap-3 mb-2.5">
             <div className="w-9 h-9 bg-[#ef6c00] rounded-full flex items-center justify-center text-white font-bold text-sm shadow-xs shrink-0">
@@ -65,7 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       </div>
 
       {/* Nav Menu (collapsible on mobile if closed, always visible on md+) */}
-      <nav className={`p-3 flex-1 space-y-1.5 overflow-y-auto ${isMobileOpen ? 'block' : 'hidden md:block'}`}>
+      <nav className={`p-3 flex-1 space-y-1.5 overflow-y-auto ${isMobileOpen ? 'block' : 'hidden lg:block'}`}>
         <button
           onClick={() => {
             setActiveTab('kanban');
@@ -197,7 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       </nav>
 
       {/* Footer SLA Info (hidden on mobile when closed) */}
-      <div className={`p-4 border-t border-[#ef6c00]/10 text-[10px] text-[#6a3000] opacity-70 text-center space-y-1 font-mono ${isMobileOpen ? 'block' : 'hidden md:block'}`}>
+      <div className={`p-4 border-t border-[#ef6c00]/10 text-[10px] text-[#6a3000] opacity-70 text-center space-y-1 font-mono ${isMobileOpen ? 'block' : 'hidden lg:block'}`}>
         <p>Data retention: 5 Years SLA</p>
         <p>Backup scheduled: 2026-12-31</p>
       </div>

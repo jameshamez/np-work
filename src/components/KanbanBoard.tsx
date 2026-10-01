@@ -78,25 +78,25 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     <div className="space-y-6">
       
       {/* Technical Dashboard Summary Stats Header */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-5 flex flex-col lg:flex-row items-stretch lg:items-center justify-between shadow-xs gap-4">
-        <div className="flex items-center gap-6 sm:gap-8 overflow-x-auto pb-2 lg:pb-0">
-          <div className="text-center shrink-0">
-            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">งานทั้งหมด</p>
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row items-stretch lg:items-center justify-between shadow-xs gap-4">
+        <div className="grid grid-cols-4 gap-2 sm:flex sm:items-center sm:gap-8">
+          <div className="text-center sm:shrink-0 min-w-0">
+            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-tight">งานทั้งหมด</p>
             <p className="text-2xl font-black" style={{ color: '#ef6c00' }}>{tasks.length}</p>
           </div>
-          <div className="w-[1px] h-9 bg-gray-200 shrink-0"></div>
-          <div className="text-center shrink-0">
-            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">อนุมัติแล้ว</p>
+          <div className="hidden sm:block w-[1px] h-9 bg-gray-200 shrink-0"></div>
+          <div className="text-center sm:shrink-0 min-w-0">
+            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-tight">อนุมัติแล้ว</p>
             <p className="text-2xl font-black text-[#72d572]">{column4Tasks.length}</p>
           </div>
-          <div className="w-[1px] h-9 bg-gray-200 shrink-0"></div>
-          <div className="text-center shrink-0">
-            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">รอตรวจ</p>
+          <div className="hidden sm:block w-[1px] h-9 bg-gray-200 shrink-0"></div>
+          <div className="text-center sm:shrink-0 min-w-0">
+            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-tight">รอตรวจ</p>
             <p className="text-2xl font-black text-amber-500">{column2Tasks.length}</p>
           </div>
-          <div className="w-[1px] h-9 bg-gray-200 shrink-0"></div>
-          <div className="text-center shrink-0">
-            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">ล่าช้า (SLA)</p>
+          <div className="hidden sm:block w-[1px] h-9 bg-gray-200 shrink-0"></div>
+          <div className="text-center sm:shrink-0 min-w-0">
+            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-tight">ล่าช้า (SLA)</p>
             <p className="text-2xl font-black text-[#bf360c]">
               {tasks.filter(t => t.slaStatus === 'delayed' || t.slaStatus === 'no_update').length}
             </p>
@@ -182,7 +182,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-gray-200 shadow-2xs space-y-3">
         
         {/* Category Tabs (โปรเจคทั่วไป, โครงการ ม.เกษตร, เขียนแบบ/ภาพ) */}
-        <div className="flex items-center space-x-2 border-b border-gray-100 pb-3 overflow-x-auto scrollbar-none">
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 pb-3">
           <button
             onClick={() => setSelectedCategory('all')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center space-x-1 ${
@@ -233,7 +233,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         </div>
 
         {/* Search & Project Filters */}
-        <div className="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
+        <div className="flex flex-col lg:flex-row gap-2.5 items-stretch lg:items-center justify-between">
           
           {/* Search input */}
           <div className="relative flex-1">

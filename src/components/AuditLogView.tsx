@@ -43,7 +43,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ onOpenDetailModal })
     <div className="space-y-6">
       
       {/* Header bar */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-200/80 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-2xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
         <div>
           {activeTab === 'activity' ? (
             <>
@@ -69,15 +69,15 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ onOpenDetailModal })
         </div>
 
         {/* Filter inputs */}
-        <div className="flex items-center space-x-3">
-          <div className="relative">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="relative flex-1 min-w-[200px] lg:flex-none">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="ค้นหาชื่อผู้ปฏิบัติงาน หรือข้อความ..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="pl-9 pr-4 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-gray-50/50"
+              className="w-full lg:w-64 pl-9 pr-4 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-gray-50/50"
             />
           </div>
 

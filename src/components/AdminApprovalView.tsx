@@ -82,8 +82,8 @@ export const AdminApprovalView: React.FC = () => {
     <div className="space-y-6">
       
       {/* Header Bar */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-200/80 shadow-2xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-2xs space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-extrabold text-gray-900 flex items-center space-x-2">
               <ShieldCheck className="w-5 h-5 text-orange-600" />
@@ -95,7 +95,7 @@ export const AdminApprovalView: React.FC = () => {
           </div>
 
           {/* Tab Selection */}
-          <div className="flex items-center space-x-1 p-1 bg-gray-100 rounded-xl shrink-0 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-1 p-1 bg-gray-100 rounded-xl self-start lg:self-auto lg:shrink-0">
             <button
               onClick={() => setActiveTab('approvals')}
               className={`px-3 py-1.5 rounded-lg text-xs font-extrabold flex items-center space-x-1.5 transition-all cursor-pointer ${

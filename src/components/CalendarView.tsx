@@ -145,7 +145,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenDetailModal })
       </div>
 
       {/* Weekday Labels */}
-      <div className="grid grid-cols-7 gap-2 text-center text-xs font-extrabold text-gray-400 uppercase">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-xs font-extrabold text-gray-400 uppercase">
         <div className="py-1 text-red-500">อา</div>
         <div className="py-1">จ</div>
         <div className="py-1">อ</div>
@@ -155,11 +155,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenDetailModal })
         <div className="py-1 text-sky-600">ส</div>
       </div>
 
-      {/* Calendar Grid */}
-      <div className="grid grid-cols-7 gap-2">
+      {/* Calendar Grid — จอมือถือช่องแคบ: ย่อการ์ดงานเหลือแถบสี กดได้เหมือนเดิม */}
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {calendarCells.map((cellDate, idx) => {
           if (!cellDate) {
-            return <div key={idx} className="min-h-[90px] bg-gray-50/30 rounded-2xl border border-transparent"></div>;
+            return <div key={idx} className="min-h-[60px] sm:min-h-[90px] bg-gray-50/30 rounded-lg sm:rounded-2xl border border-transparent"></div>;
           }
 
           const dayTasks = getTasksForDate(cellDate);
@@ -168,7 +168,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenDetailModal })
           return (
             <div
               key={idx}
-              className={`min-h-[100px] p-2 rounded-2xl border transition-all flex flex-col justify-between ${
+              className={`min-h-[64px] sm:min-h-[100px] p-1 sm:p-2 rounded-lg sm:rounded-2xl border transition-all flex flex-col justify-between min-w-0 ${
                 isToday
                   ? 'bg-orange-50/50 border-orange-400 ring-2 ring-orange-200'
                   : 'bg-white border-gray-200 hover:border-orange-200'
@@ -179,8 +179,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenDetailModal })
                   {cellDate.getDate()}
                 </span>
                 {dayTasks.length > 0 && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-orange-100 text-orange-800">
-                    {dayTasks.length} งาน
+                  <span className="text-[10px] font-bold px-1 sm:px-1.5 py-0.2 rounded-full bg-orange-100 text-orange-800">
+                    {dayTasks.length}<span className="hidden sm:inline"> งาน</span>
                   </span>
                 )}
               </div>
@@ -210,13 +210,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenDetailModal })
                     <button
                       key={task.id}
                       onClick={() => handleCardClick(task)}
-                      className="w-full text-left p-1 rounded-lg text-[10px] font-extrabold truncate transition-transform hover:scale-[1.02] block shadow-2xs cursor-pointer"
+                      title={`#${task.code} ${task.title}`}
+                      aria-label={`#${task.code} ${task.title}`}
+                      className="w-full text-left h-2.5 sm:h-auto p-0 sm:p-1 rounded sm:rounded-lg text-[10px] font-extrabold truncate transition-transform hover:scale-[1.02] block shadow-2xs cursor-pointer"
                       style={{
                         backgroundColor: bg,
                         color: textColor,
                       }}
                     >
-                      #{task.code} {task.title}
+                      <span className="hidden sm:inline">#{task.code} {task.title}</span>
                     </button>
                   );
                 })}

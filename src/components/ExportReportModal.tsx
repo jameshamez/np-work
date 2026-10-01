@@ -105,7 +105,8 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
       monthFollowUp: monthTasks.filter(needsFollowUp).length,
       weekFollowUp: weekTasks.filter(needsFollowUp).length,
       avgLead: averageLeadDays(monthTasks),
-      projectRows: buildProjectRows(monthTasks, scopedProjects),
+      // ภาพรวมโครงการนับการ์ดทุกใบภายใต้โครงการ (สะสม ไม่ตัดตามเดือน) — ความสำเร็จ = เสร็จแล้ว / ทั้งหมด
+      projectRows: buildProjectRows(allTasks, scopedProjects),
       weekProjectRows: buildProjectRows(weekTasks, scopedProjects).filter(r => r.total > 0),
       personRows: buildPersonRows(monthTasks, now),
       weekUrgent: followUpList(weekTasks),
@@ -129,8 +130,6 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
   const mTotal = report.monthTasks.length;
   const mInProgress = report.monthCounts.pending_submission + report.monthCounts.pending_review;
   const successPct = mTotal > 0 ? Math.round((report.monthCounts.approved / mTotal) * 100) : 0;
-  const busiestProject = report.projectRows.find(r => r.total > 0);
-
   return createPortal(
     <div className="np-report-overlay fixed inset-0 z-50 bg-black/60 backdrop-blur-xs overflow-y-auto">
       {/* แถบควบคุม (ไม่พิมพ์) */}
@@ -208,7 +207,7 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
       <div className="np-report-pages py-6 px-3 space-y-6 print:p-0 print:space-y-0">
         {/* หน้า 1 — สรุปผู้บริหาร */}
         <Sheet>
-          <h1 className="text-[40px] font-black tracking-tight leading-none">
+          <h1 className="text-[32px] sm:text-[40px] print:text-[40px] font-black tracking-tight leading-none">
             <span style={{ color: BRAND }}>NP</span> <span className="text-slate-800">TASKWORK</span>
           </h1>
           <h2 className="mt-8 text-2xl font-extrabold text-slate-900 pb-2 border-b-2 border-blue-500">
@@ -291,7 +290,7 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
         <Sheet>
           <SheetTitle>ภาพรวมโครงการทั้งหมด</SheetTitle>
           <Para label="มุมมองการอ่าน">
-            เรียงโครงการตามจำนวนงาน เพื่อให้เห็นโครงการที่ใช้ทรัพยากรมากและโครงการที่มีสัญญาณเสี่ยงก่อน (ขอบเขตรายเดือน {monthLabel})
+            นับการ์ดงานทุกใบภายใต้แต่ละโครงการ (สะสมทั้งหมด ไม่ตัดตามช่วงเวลา) ความสำเร็จ = การ์ดที่อนุมัติแล้ว ÷ การ์ดทั้งหมดของโครงการ เรียงตามจำนวนงานเพื่อให้เห็นโครงการที่ใช้ทรัพยากรมากและโครงการที่มีสัญญาณเสี่ยงก่อน
           </Para>
           <Table
             head={['ลำดับ', 'โครงการ', 'งานทั้งหมด', 'เสร็จแล้ว', 'ความสำเร็จ', 'งานเสี่ยง']}
@@ -441,8 +440,8 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
 // ---------------------------------------------------------------------------
 
 const Sheet: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <section className="np-report-sheet relative mx-auto bg-white text-slate-800 shadow-xl w-full max-w-[794px] min-h-[1123px] px-[56px] pt-[56px] pb-[72px] flex flex-col">
-    <div className="absolute top-5 right-[56px] text-[10px] font-bold tracking-wide text-slate-500">NP TASKWORK | MANAGEMENT REPORT</div>
+  <section className="np-report-sheet relative mx-auto bg-white text-slate-800 shadow-xl w-full max-w-[794px] sm:min-h-[1123px] print:min-h-[1123px] px-4 sm:px-[56px] print:px-[56px] pt-12 sm:pt-[56px] print:pt-[56px] pb-[64px] sm:pb-[72px] flex flex-col">
+    <div className="absolute top-5 right-4 sm:right-[56px] print:right-[56px] text-[10px] font-bold tracking-wide text-slate-500">NP TASKWORK | MANAGEMENT REPORT</div>
     <div className="flex-1">{children}</div>
     <div className="absolute bottom-6 inset-x-0 text-center text-[10px] text-slate-500">
       รายงานสรุปสถานะโครงการและผลการปฏิบัติงาน <span style={{ color: BRAND }}>•</span>
@@ -461,9 +460,9 @@ const Para: React.FC<{ label: string; children: React.ReactNode }> = ({ label, c
 );
 
 const Kpis: React.FC<{ items: { label: string; value: number; note: string; color: string; bg: string }[] }> = ({ items }) => (
-  <div className="mt-6 grid grid-cols-4 border border-slate-200">
+  <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 print:grid-cols-4 border border-slate-200">
     {items.map(k => (
-      <div key={k.label} className="p-3 border-r last:border-r-0 border-slate-200" style={{ backgroundColor: k.bg }}>
+      <div key={k.label} className="p-3 border-r border-b sm:border-b-0 print:border-b-0 last:border-r-0 border-slate-200" style={{ backgroundColor: k.bg }}>
         <div className="text-xs font-bold text-slate-700">{k.label}</div>
         <div className="mt-2 text-4xl font-black leading-none" style={{ color: k.color }}>{k.value}</div>
         <div className="mt-2 text-[11px] text-slate-600">{k.note}</div>
@@ -472,31 +471,34 @@ const Kpis: React.FC<{ items: { label: string; value: number; note: string; colo
   </div>
 );
 
+/** จอแคบเลื่อนตารางแนวนอนได้ ตอนพิมพ์ A4 กว้างพอเสมอ */
 const Table: React.FC<{ head: string[]; rows: (string | number)[][]; empty: string }> = ({ head, rows, empty }) => (
-  <table className="mt-4 w-full border-collapse text-xs">
-    <thead>
-      <tr>
-        {head.map(h => (
-          <th key={h} className="px-2 py-2.5 text-center font-bold text-white border border-slate-300" style={{ backgroundColor: NAVY }}>{h}</th>
-        ))}
-      </tr>
-    </thead>
-    <tbody>
-      {rows.length === 0 ? (
+  <div className="mt-4 overflow-x-auto print:overflow-visible">
+    <table className="w-full min-w-[480px] print:min-w-0 border-collapse text-xs">
+      <thead>
         <tr>
-          <td colSpan={head.length} className="px-2 py-6 text-center text-slate-500 border border-slate-200">{empty}</td>
+          {head.map(h => (
+            <th key={h} className="px-2 py-2.5 text-center font-bold text-white border border-slate-300" style={{ backgroundColor: NAVY }}>{h}</th>
+          ))}
         </tr>
-      ) : (
-        rows.map((row, i) => (
-          <tr key={i} className={i % 2 ? 'bg-slate-50' : 'bg-white'} style={{ breakInside: 'avoid' }}>
-            {row.map((cell, j) => (
-              <td key={j} className={`px-2 py-2 border border-slate-200 ${typeof cell === 'number' ? 'text-center tabular-nums' : ''}`}>{cell}</td>
-            ))}
+      </thead>
+      <tbody>
+        {rows.length === 0 ? (
+          <tr>
+            <td colSpan={head.length} className="px-2 py-6 text-center text-slate-500 border border-slate-200">{empty}</td>
           </tr>
-        ))
-      )}
-    </tbody>
-  </table>
+        ) : (
+          rows.map((row, i) => (
+            <tr key={i} className={i % 2 ? 'bg-slate-50' : 'bg-white'} style={{ breakInside: 'avoid' }}>
+              {row.map((cell, j) => (
+                <td key={j} className={`px-2 py-2 border border-slate-200 ${typeof cell === 'number' ? 'text-center tabular-nums' : ''}`}>{cell}</td>
+              ))}
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  </div>
 );
 
 /** โดนัทสัดส่วนสถานะ — ทุกชิ้นมีป้ายชื่อ จำนวน และเปอร์เซ็นต์ในคำอธิบาย ไม่พึ่งสีอย่างเดียว */
@@ -513,7 +515,7 @@ const StatusDonut: React.FC<{ counts: Record<TaskStatus, number>; total: number 
   });
 
   return (
-    <div className="flex items-center gap-10 pl-6">
+    <div className="flex flex-col sm:flex-row print:flex-row items-center gap-6 sm:gap-10 sm:pl-6 print:pl-6">
       <svg width="200" height="200" viewBox="0 0 200 200" role="img" aria-label="สัดส่วนสถานะงาน">
         <circle cx="100" cy="100" r={r} fill="none" stroke="#eef1f4" strokeWidth="36" />
         {segments.map(seg => (
@@ -556,7 +558,7 @@ const BarChart: React.FC<{ data: { label: string; value: number }[]; color: stri
   const H = 170;
   return (
     <div>
-      <div className="flex items-end gap-4 border-b border-slate-300" style={{ height: H + 28 }}>
+      <div className="flex items-end gap-2 sm:gap-4 border-b border-slate-300" style={{ height: H + 28 }}>
         {data.map(d => (
           <div key={d.label} className="flex-1 min-w-0 flex flex-col items-center justify-end" title={`${d.label}: ${d.value} ${unit}`}>
             <span className="text-sm font-extrabold text-slate-800 mb-1 tabular-nums">{d.value}</span>
@@ -567,7 +569,7 @@ const BarChart: React.FC<{ data: { label: string; value: number }[]; color: stri
           </div>
         ))}
       </div>
-      <div className="flex gap-4 pt-1.5">
+      <div className="flex gap-2 sm:gap-4 pt-1.5">
         {data.map(d => (
           <span key={d.label} className="flex-1 min-w-0 text-[10px] leading-tight text-slate-600 text-center line-clamp-2">{d.label}</span>
         ))}

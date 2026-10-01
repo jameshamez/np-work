@@ -43,20 +43,20 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-xs print:hidden">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between gap-2 h-16">
           
           {/* Left: Brand Logo & Title */}
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-white shadow-md shadow-orange-500/20">
-              <ClipboardList className="w-6 h-6" />
+          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-white shadow-md shadow-orange-500/20">
+              <ClipboardList className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center space-x-2">
-                <span className="font-extrabold text-lg tracking-tight text-gray-900">
+                <span className="font-extrabold text-sm sm:text-lg tracking-tight text-gray-900 whitespace-nowrap">
                   NP <span style={{ color: '#ef6c00' }}>TASKWORK</span>
                 </span>
-                <span className="bg-orange-100 text-xs font-bold px-2 py-0.5 rounded-full" style={{ color: '#ef6c00' }}>
+                <span className="hidden sm:inline bg-orange-100 text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ color: '#ef6c00' }}>
                   ระบบติดตามงาน
                 </span>
               </div>
@@ -67,7 +67,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Center / Right Controls */}
-          <div className="flex items-center space-x-2 sm:space-x-4">
+          <div className="flex items-center space-x-1 sm:space-x-4 shrink-0">
 
             {/* สวิตช์ระบบแจ้งเตือน LINE — แอดมินเท่านั้น เพราะเป็นค่าระดับระบบ ไม่ใช่ค่าส่วนตัว */}
             {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
@@ -104,7 +104,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               {/* Dropdown Menu */}
               {showNotifDropdown && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                <div className="fixed inset-x-3 top-16 sm:absolute sm:inset-x-auto sm:top-auto sm:right-0 sm:mt-2 sm:w-96 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2">
                   <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <Bell className="w-4 h-4 text-orange-600" />
@@ -161,7 +161,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Current User Switcher & Info */}
-            <div className="flex items-center space-x-2 pl-2 border-l border-gray-200">
+            <div className="flex items-center space-x-1 sm:space-x-2 pl-1.5 sm:pl-2 border-l border-gray-200">
               <div className="hidden md:flex flex-col text-right">
                 <span className="text-xs font-bold text-gray-900 truncate max-w-[120px]">
                   {currentUser?.fullName?.replace(/\s*\([^)]*\)/g, '') || 'ผู้ใช้งาน'}
@@ -173,7 +173,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <select
                   value={currentUser?.id || ''}
                   onChange={e => setCurrentUserId(e.target.value)}
-                  className="text-xs border border-orange-300 rounded-lg px-2 py-1.5 bg-orange-50 font-bold text-orange-900 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer max-w-[140px] shadow-2xs"
+                  className="text-xs border border-orange-300 rounded-lg px-2 py-1.5 bg-orange-50 font-bold text-orange-900 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer max-w-[96px] sm:max-w-[140px] shadow-2xs"
                   title="Super Admin: สลับสิทธิ์การเข้าใช้งานเพื่อทดสอบระบบ"
                 >
                   {users
@@ -186,7 +186,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </select>
               ) : (
                 <div
-                  className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-100 font-bold text-gray-800 flex items-center space-x-1.5 max-w-[140px] shadow-2xs"
+                  className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-100 font-bold text-gray-800 flex items-center space-x-1.5 max-w-[96px] sm:max-w-[140px] shadow-2xs"
                   title="สิทธิ์การใช้งานประจำตัวของคุณ (เฉพาะ Super Admin จึงจะสลับสิทธิ์ได้)"
                 >
                   <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>

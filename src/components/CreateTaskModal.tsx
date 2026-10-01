@@ -596,7 +596,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
               </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <div>
                 <label className="block text-[10px] font-bold text-gray-700 mb-1">
                   ว/ด/ป ที่เริ่ม (Default) <span className="text-red-500">*</span>
@@ -623,7 +623,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
                 />
               </div>
 
-              <div>
+              <div className="col-span-2 sm:col-span-1">
                 <label className="block text-[10px] font-bold text-gray-700 mb-1">
                   จำนวนวันแผนงาน <span className="text-red-500">*</span>
                 </label>
