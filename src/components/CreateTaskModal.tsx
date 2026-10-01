@@ -11,7 +11,7 @@ interface CreateTaskModalProps {
 }
 
 export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => {
-  const { createTask, saveTaskDraft, projects, users, currentUser, addProject, flowTemplates } = useApp();
+  const { createTask, saveTaskDraft, uploadAttachmentFile, projects, users, currentUser, addProject, flowTemplates } = useApp();
 
   const [category, setCategory] = useState<ProjectCategory>('general');
   const [title, setTitle] = useState('');
@@ -39,8 +39,16 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
   const [showCreateFlowModal, setShowCreateFlowModal] = useState(false);
 
   // Attached Image 1 state for drawing/general task creation
-  const [attachedImage1Url, setAttachedImage1Url] = useState<string>('');
-  const [attachedImage1Name, setAttachedImage1Name] = useState<string>('');
+  // ภาพที่ 1 ของการ์ดเขียนแบบ — previewUrl เป็นลิงก์ชั่วคราวไว้แสดงตัวอย่างเท่านั้น
+  // ตัวไฟล์จริงจะถูกอัปโหลดขึ้น Storage ตอนกดบันทึก
+  const [attachedImage1, setAttachedImage1] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+
+  const clearAttachedImage1 = () => {
+    if (attachedImage1) URL.revokeObjectURL(attachedImage1.previewUrl);
+    setAttachedImage1(null);
+  };
 
   const handleStartDateChange = (newStart: string) => {
     setStartDate(newStart);
@@ -122,11 +130,6 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
       if (!title) {
         setTitle('งานเขียนแบบโครงสร้างและพิมพ์เขียว 3D');
       }
-      // Auto open and set preset drawing image 1 if not attached yet
-      if (!attachedImage1Url) {
-        setAttachedImage1Url('https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80');
-        setAttachedImage1Name('blueprint_3d_steamer_model.png');
-      }
       setChecklists([
         '1. ตรวจสอบรายละเอียดและข้อกำหนดงานเขียนแบบ',
         '2. จัดทำแบบร่างและภาพที่ 1 ฉบับสมบูรณ์',
@@ -135,16 +138,17 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
     }
   };
 
-  const buildAttachments = (): Attachment[] => {
-    if (!attachedImage1Url) return [];
+  const buildAttachments = async (): Promise<Attachment[]> => {
+    if (!attachedImage1) return [];
+    const { file } = attachedImage1;
     return [
       {
         id: `att-${Date.now()}-1`,
         taskId: '',
-        fileName: attachedImage1Name || 'drawing_plan_image_1.jpg',
-        fileUrl: attachedImage1Url,
+        fileName: file.name,
+        fileUrl: await uploadAttachmentFile(file),
         fileType: 'image',
-        fileSize: 2500000,
+        fileSize: file.size,
         uploadedBy: currentUser?.fullName || 'ผู้ใช้งาน',
         uploadedAt: new Date().toISOString(),
       },
@@ -205,6 +209,18 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
       return;
     }
 
+    // อัปโหลดรูปก่อนสร้างการ์ด ถ้าพังให้ค้างฟอร์มไว้ ผู้ใช้จะได้กดบันทึกใหม่โดยไม่ต้องกรอกซ้ำ
+    setIsSaving(true);
+    setUploadError('');
+    let attachments: Attachment[];
+    try {
+      attachments = await buildAttachments();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+      setIsSaving(false);
+      return;
+    }
+
     const targetProjId = await resolveTargetProjectId();
 
     createTask({
@@ -216,10 +232,12 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
       planDays,
       category,
       checklists,
-      attachments: buildAttachments(),
+      attachments,
       isDraft: false,
     });
 
+    clearAttachedImage1();
+    setIsSaving(false);
     onClose();
   };
 
@@ -471,39 +489,14 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
                     เน้นแนบภาพที่ 1 สำหรับการ์ดเขียนแบบ
                   </span>
                 </label>
-
-                {/* Preset Sample Picker for Fast Testing */}
-                <div className="flex items-center space-x-1">
-                  <span className="text-[10px] text-gray-400 hidden sm:inline">เลือกตัวอย่าง:</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachedImage1Url('https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80');
-                      setAttachedImage1Name('blueprint_3d_steamer_model.png');
-                    }}
-                    className="text-[10px] font-bold px-2 py-0.5 bg-white border border-gray-200 hover:border-purple-400 text-gray-700 rounded-md transition-colors"
-                  >
-                    แบบ 3D
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachedImage1Url('https://images.unsplash.com/photo-1581092335397-9583fe92d232?auto=format&fit=crop&w=800&q=80');
-                      setAttachedImage1Name('circuit_diagram_draft1.jpg');
-                    }}
-                    className="text-[10px] font-bold px-2 py-0.5 bg-white border border-gray-200 hover:border-purple-400 text-gray-700 rounded-md transition-colors"
-                  >
-                    แบบวงจร
-                  </button>
-                </div>
               </div>
 
               {/* Attached Preview Box vs Dropzone */}
-              {attachedImage1Url ? (
+              {attachedImage1 ? (
                 <div className="relative group bg-white border border-purple-200 rounded-xl p-2.5 flex items-center space-x-3 shadow-2xs">
                   <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-200 shrink-0 bg-gray-100">
                     <img
-                      src={attachedImage1Url}
+                      src={attachedImage1.previewUrl}
                       alt="แบบภาพที่ 1"
                       className="w-full h-full object-cover"
                     />
@@ -519,17 +512,16 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
                       </span>
                     </div>
                     <p className="text-xs font-bold text-gray-800 truncate mt-0.5">
-                      {attachedImage1Name || 'drawing_plan_image_1.jpg'}
+                      {attachedImage1.file.name}
                     </p>
-                    <p className="text-[10px] text-gray-400">ขนาด: ~2.5 MB • แนบไฟล์พร้อมสำหรับการ์ดงานแล้ว</p>
+                    <p className="text-[10px] text-gray-400">
+                      ขนาด: {Math.round((attachedImage1.file.size / 1024 / 1024) * 10) / 10} MB • อัปโหลดเมื่อกดบันทึก
+                    </p>
                   </div>
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setAttachedImage1Url('');
-                      setAttachedImage1Name('');
-                    }}
+                    onClick={clearAttachedImage1}
                     className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
                     title="ลบรูปภาพ"
                   >
@@ -544,8 +536,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
                     onChange={e => {
                       const file = e.target.files?.[0];
                       if (file) {
-                        setAttachedImage1Name(file.name);
-                        setAttachedImage1Url(URL.createObjectURL(file));
+                        setAttachedImage1({ file, previewUrl: URL.createObjectURL(file) });
                       }
                     }}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
@@ -558,10 +549,16 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
                       คลิกเพื่อเลือกภาพ หรือ<span className="text-purple-600 font-black">ลากไฟล์มาวาง (ภาพที่ 1)</span>
                     </p>
                     <p className="text-[10px] text-gray-400">
-                      รองรับไฟล์ภาพ JPG, PNG, WEBP หรือคลิกปุ่มเลือกตัวอย่างแบบข้างบน
+                      รองรับไฟล์ภาพ JPG, PNG, WEBP ขนาดไม่เกิน 50MB
                     </p>
                   </div>
                 </div>
+              )}
+
+              {uploadError && (
+                <p className="text-[11px] font-bold text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                  {uploadError}
+                </p>
               )}
             </div>
           )}
@@ -801,10 +798,11 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all hover:opacity-90"
+                disabled={isSaving}
+                className="px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
                 style={{ backgroundColor: '#ef6c00' }}
               >
-                บันทึกและสร้างการ์ดงาน
+                {isSaving ? 'กำลังอัปโหลดไฟล์...' : 'บันทึกและสร้างการ์ดงาน'}
               </button>
             </div>
           </div>

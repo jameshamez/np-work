@@ -111,6 +111,7 @@ const mapAttachment = (r: Row): Attachment => ({
   fileType: r.file_type,
   fileSize: num(r.file_size),
   uploadedBy: r.uploaded_by_name ?? '',
+  uploadedById: opt(r.uploaded_by),
   uploadedAt: r.uploaded_at,
 });
 
@@ -524,8 +525,15 @@ export async function updateTaskFields(
 }
 
 export async function deleteTask(db: SupabaseClient, taskId: string): Promise<void> {
-  const { error } = await db.from('tasks').delete().eq('id', taskId);
+  // จำลิงก์ไฟล์ไว้ก่อน เพราะแถว attachments จะหายไปพร้อมการ์ด (on delete cascade)
+  const { data: files } = await db.from('attachments').select('file_url').eq('task_id', taskId);
+
+  const { data, error } = await db.from('tasks').delete().eq('id', taskId).select('id');
   if (error) throw new Error(`ลบงานไม่สำเร็จ: ${error.message}`);
+  // RLS ไม่ให้ลบจะไม่ error แต่ได้ 0 แถว — ห้ามไปลบไฟล์ของการ์ดที่ยังอยู่
+  if (!data || data.length === 0) throw new Error('ลบงานไม่สำเร็จ: ลบการ์ดงานได้เฉพาะแอดมินขึ้นไป');
+
+  await removeStorageFiles(db, (files ?? []).map(f => f.file_url as string));
 }
 
 /**
@@ -581,15 +589,18 @@ export async function updateChecklistItem(
   resultStatus?: 'success' | 'fail',
   resultReason?: string
 ): Promise<void> {
-  const { error } = await db
+  const { data, error } = await db
     .from('task_checklist_items')
     .update({
       completed,
       result_status: completed ? (resultStatus ?? 'success') : null,
       result_reason: resultStatus === 'fail' ? (resultReason ?? 'ไม่ระบุสาเหตุ') : (resultReason ?? null),
     })
-    .eq('id', checklistId);
+    .eq('id', checklistId)
+    .select('id');
   if (error) throw new Error(`อัปเดตรายการตรวจไม่สำเร็จ: ${error.message}`);
+  // RLS ไม่ให้แก้จะไม่ error แต่ได้ 0 แถว — ต้องแจ้ง ไม่งั้นหน้าจอจะติ๊กค้างทั้งที่ไม่ได้บันทึก
+  if (!data || data.length === 0) throw new Error('อัปเดตรายการตรวจไม่สำเร็จ: ไม่มีสิทธิ์แก้ไขการ์ดงานนี้');
 }
 
 // =============================================================================
@@ -690,6 +701,53 @@ export async function addAnnotation(
     author_name: authorName,
   });
   if (error) throw new Error(`บันทึกจุดมาร์กไม่สำเร็จ: ${error.message}`);
+}
+
+/**
+ * อัปโหลดไฟล์ขึ้น bucket "attachments" (db/14_storage_attachments.sql) แล้วคืนลิงก์ถาวร
+ * เก็บใต้โฟลเดอร์ของผู้อัปโหลดตามที่ policy บังคับ และขึ้นต้นด้วย UUID กันชื่อชนและกันเดาลิงก์
+ */
+export async function uploadAttachmentFile(
+  db: SupabaseClient,
+  uploaderId: string,
+  file: File
+): Promise<string> {
+  const ext = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
+  // ชื่อไฟล์ภาษาไทย/เว้นวรรคใช้เป็น key ของ Storage ไม่ได้ — ชื่อจริงเก็บแยกไว้ใน attachments.file_name
+  const path = `${uploaderId}/${crypto.randomUUID()}${ext ? `.${ext}` : ''}`;
+  const { error } = await db.storage
+    .from('attachments')
+    .upload(path, file, { contentType: file.type || undefined });
+  if (error) throw new Error(`อัปโหลดไฟล์ "${file.name}" ไม่สำเร็จ: ${error.message}`);
+  return db.storage.from('attachments').getPublicUrl(path).data.publicUrl;
+}
+
+/**
+ * ลบไฟล์แนบ — ลบแถวในตารางก่อน (RLS attachments_delete: ผู้อัปโหลดหรือแอดมิน)
+ * แล้วค่อยลบตัวไฟล์ใน Storage ถ้าเป็นไฟล์ที่อัปโหลดผ่าน bucket นี้
+ * ลบตัวไฟล์ไม่สำเร็จไม่ถือว่าล้มเหลว เพราะแถวหายไปแล้ว ผู้ใช้มองไม่เห็นไฟล์นั้นอีก
+ */
+export async function deleteAttachment(db: SupabaseClient, attachmentId: string, fileUrl: string): Promise<void> {
+  const { data, error } = await db.from('attachments').delete().eq('id', attachmentId).select('id');
+  if (error) throw new Error(`ลบไฟล์แนบไม่สำเร็จ: ${error.message}`);
+  // RLS ไม่ให้ลบจะไม่ error แต่ได้ 0 แถว — ต้องเช็คเอง ไม่งั้นผู้ใช้จะคิดว่าลบแล้ว
+  if (!data || data.length === 0) throw new Error('ลบไฟล์แนบไม่สำเร็จ: ลบได้เฉพาะผู้อัปโหลดหรือแอดมิน');
+
+  await removeStorageFiles(db, [fileUrl]);
+}
+
+/**
+ * ลบตัวไฟล์ใน bucket "attachments" ตามลิงก์ที่เคยบันทึกไว้ — ข้ามลิงก์ที่ไม่ใช่ของ bucket นี้
+ * (blob:, '#', Unsplash) ลบไม่สำเร็จแค่เขียน log เพราะเรียกหลังแถวในตารางหายไปแล้ว
+ */
+async function removeStorageFiles(db: SupabaseClient, fileUrls: string[]): Promise<void> {
+  const marker = '/storage/v1/object/public/attachments/';
+  const paths = fileUrls
+    .map(url => url.indexOf(marker) >= 0 ? decodeURIComponent(url.slice(url.indexOf(marker) + marker.length)) : null)
+    .filter((path): path is string => !!path);
+  if (paths.length === 0) return;
+  const { error } = await db.storage.from('attachments').remove(paths);
+  if (error) console.error(`ลบตัวไฟล์ใน Storage ไม่สำเร็จ: ${error.message}`);
 }
 
 export async function insertAttachments(

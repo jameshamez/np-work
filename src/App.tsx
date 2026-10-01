@@ -29,6 +29,11 @@ function AppContent() {
   const [showCreateFlowModal, setShowCreateFlowModal] = useState(false);
 
   const { signOut } = useAuth();
+  const { tasks } = useApp();
+
+  // เปิดหน้ารายละเอียดด้วยข้อมูลล่าสุดเสมอ — ถ้าส่งตัวที่จำไว้ตอนคลิกเปิด หน้าจะไม่เห็นการแก้ไข
+  // ที่เกิดขึ้นทีหลัง (เช่น เพิ่ม/ลบรูปตอนรอตรวจ) และถ้าการ์ดถูกลบไปแล้ว หน้าจะปิดเอง
+  const liveDetailTask = detailTask ? tasks.find(t => t.id === detailTask.id) ?? null : null;
 
   return (
     <div className="min-h-screen bg-[#fffbf2] flex flex-col font-sans text-gray-900 antialiased selection:bg-[#ef6c00] selection:text-white">
@@ -103,9 +108,9 @@ function AppContent() {
         />
       )}
 
-      {detailTask && (
+      {liveDetailTask && (
         <TaskDetailModal
-          task={detailTask}
+          task={liveDetailTask}
           onClose={() => setDetailTask(null)}
           onOpenSubmitModal={task => {
             setDetailTask(null);

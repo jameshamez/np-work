@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Task } from '../types';
+import { Attachment, Task } from '../types';
 import { useApp } from '../context/AppContext';
 import { KUMilestonesView } from './KUMilestonesView';
 import { ImageAnnotationViewer } from './ImageAnnotationViewer';
@@ -7,6 +7,7 @@ import { VoiceInputButton } from './VoiceInputButton';
 import { DeleteTaskConfirmModal } from './DeleteTaskConfirmModal';
 import {
   X,
+  Upload,
   Clock,
   CheckSquare,
   Paperclip,
@@ -45,7 +46,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   onClose,
   onOpenSubmitModal,
 }) => {
-  const { currentUser, updateChecklist, logs, approveTask, returnTask, addAnnotation, users, updateTaskFinancials, deleteTask } = useApp();
+  const { currentUser, updateChecklist, logs, approveTask, returnTask, addAnnotation, users, updateTaskFinancials, deleteTask, addTaskImages, deleteAttachment } = useApp();
 
   const [activeTab, setActiveTab] = useState<'info' | 'ku_flow' | 'annotation' | 'financials' | 'attachments' | 'history'>(
     task?.category === 'ku_university' ? 'ku_flow' : 'info'
@@ -98,6 +99,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [popupComment, setPopupComment] = useState('');
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // แก้รูปตอนรอตรวจ: id ของไฟล์ที่กำลังถามยืนยันลบ, สถานะกำลังอัปโหลด/ลบ, และข้อความ error
+  const [confirmDeleteAttId, setConfirmDeleteAttId] = useState<string | null>(null);
+  const [isImageBusy, setIsImageBusy] = useState(false);
+  const [imageError, setImageError] = useState('');
 
   if (!task) return null;
 
@@ -110,7 +115,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const canDelete = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
   // Find image attachment if any for blueprint annotation
-  const imageAttachment = task.attachments.find(a => a.fileType === 'image');
+  const imageAttachment = task.attachments.find(a => a.fileType === 'image' && !a.fileUrl.startsWith('blob:'));
   const sampleBlueprintUrl = imageAttachment?.fileUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?q=80&w=1200';
 
   // ล็อกการแก้ไขเฉพาะตอนที่งานไม่ได้อยู่ในมือเจ้าของงาน
@@ -118,6 +123,46 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   //   approved       = ปิดงานแล้ว
   //   returned       = ต้องกลับไปแก้ จึงต้องแก้ได้ (ไม่ล็อก)
   const isLockedStatus = task.status === 'pending_review' || task.status === 'approved';
+
+  // ข้อยกเว้นของการล็อก: ตอนรอตรวจยังเพิ่ม/ลบรูปผลงานได้ (เช่น แนบรูปผิดหรือรูปเปิดไม่ได้)
+  // ให้สิทธิ์ตรงกับ app_can_edit_task ที่ฐานข้อมูลใช้ตรวจตอนเพิ่มไฟล์แนบ
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+  const canEditImages =
+    task.status === 'pending_review' &&
+    !!currentUser &&
+    (isAdmin ||
+      [task.assignedToUserId, task.assignedTargetUserId, task.reviewerUserId, task.createdById].includes(currentUser.id));
+  // ลบได้เฉพาะผู้อัปโหลดหรือแอดมิน ตาม policy attachments_delete
+  const canDeleteAttachment = (att: Attachment) =>
+    canEditImages && att.fileType === 'image' && (isAdmin || att.uploadedById === currentUser?.id);
+
+  const handleAddImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    setIsImageBusy(true);
+    setImageError('');
+    try {
+      await addTaskImages(task.id, files);
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsImageBusy(false);
+    }
+  };
+
+  const handleDeleteAttachment = async (att: Attachment) => {
+    setIsImageBusy(true);
+    setImageError('');
+    try {
+      await deleteAttachment(att);
+      setConfirmDeleteAttId(null);
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsImageBusy(false);
+    }
+  };
   const statusLabel =
     task.status === 'pending_review'
       ? 'รอตรวจ'
@@ -920,19 +965,50 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 </span>
               </div>
 
+              {canEditImages && (
+                <div className="space-y-2">
+                  <label
+                    className={`flex items-center justify-center space-x-2 border-2 border-dashed rounded-2xl p-3 text-xs font-bold transition-colors ${
+                      isImageBusy
+                        ? 'border-gray-200 text-gray-400 cursor-wait'
+                        : 'border-orange-200 hover:border-orange-400 text-orange-700 cursor-pointer'
+                    }`}
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>{isImageBusy ? 'กำลังบันทึก...' : 'เพิ่มรูปภาพผลงาน (แก้ไขได้ระหว่างรอตรวจ)'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      disabled={isImageBusy}
+                      onChange={handleAddImages}
+                      className="hidden"
+                    />
+                  </label>
+                  {imageError && (
+                    <p className="text-[11px] font-bold text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                      {imageError}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {task.attachments.length === 0 ? (
                 <div className="p-8 text-center text-xs text-gray-400 border border-dashed border-gray-200 rounded-2xl">
                   ยังไม่มีไฟล์หรือรูปภาพแนบในงานนี้
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {task.attachments.map(att => (
+                  {task.attachments.map(att => {
+                    // ลิงก์ blob: มาจากเวอร์ชันเก่าที่ไม่ได้อัปโหลดไฟล์ขึ้นเซิร์ฟเวอร์ — ตัวไฟล์หายไปแล้ว เปิดไม่ได้
+                    const isLostFile = att.fileUrl.startsWith('blob:');
+                    return (
                     <div
                       key={att.id}
                       className="p-3 border border-gray-200 rounded-2xl bg-white hover:border-orange-300 transition-all space-y-2 flex flex-col justify-between"
                     >
                       <div>
-                        {att.fileType === 'image' && att.fileUrl && att.fileUrl !== '#' && (
+                        {att.fileType === 'image' && att.fileUrl && att.fileUrl !== '#' && !isLostFile && (
                           <div className="w-full h-32 rounded-xl overflow-hidden mb-2 bg-black/5">
                             <img
                               src={att.fileUrl}
@@ -952,29 +1028,68 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                         </div>
                       </div>
 
-                      <a
-                        href={att.fileUrl !== '#' ? att.fileUrl : undefined}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={e => {
-                          if (att.fileUrl === '#') {
-                            e.preventDefault();
-                            setSystemPopup({
-                              isOpen: true,
-                              type: 'alert',
-                              title: 'ดาวน์โหลดไฟล์เอกสาร',
-                              labelMessage: `จำลองดาวน์โหลดไฟล์: ${att.fileName} (${Math.round(att.fileSize / 1024 / 1024 * 10) / 10} MB)`,
-                              onConfirm: () => {},
-                            });
-                          }
-                        }}
-                        className="w-full text-center py-1.5 text-[11px] font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-xl transition-colors inline-flex items-center justify-center space-x-1 mt-2"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        <span>เปิด / ดาวน์โหลดไฟล์</span>
-                      </a>
+                      {isLostFile ? (
+                        <p className="w-full text-center py-1.5 px-2 text-[11px] font-bold text-red-700 bg-red-50 rounded-xl mt-2">
+                          ไฟล์นี้ไม่ได้ถูกอัปโหลดขึ้นระบบ เปิดไม่ได้ — กรุณาส่งตรวจงานพร้อมแนบรูปใหม่
+                        </p>
+                      ) : (
+                        <a
+                          href={att.fileUrl !== '#' ? att.fileUrl : undefined}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={e => {
+                            if (att.fileUrl === '#') {
+                              e.preventDefault();
+                              setSystemPopup({
+                                isOpen: true,
+                                type: 'alert',
+                                title: 'ดาวน์โหลดไฟล์เอกสาร',
+                                labelMessage: `จำลองดาวน์โหลดไฟล์: ${att.fileName} (${Math.round(att.fileSize / 1024 / 1024 * 10) / 10} MB)`,
+                                onConfirm: () => {},
+                              });
+                            }
+                          }}
+                          className="w-full text-center py-1.5 text-[11px] font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-xl transition-colors inline-flex items-center justify-center space-x-1 mt-2"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>เปิด / ดาวน์โหลดไฟล์</span>
+                        </a>
+                      )}
+
+                      {canDeleteAttachment(att) &&
+                        (confirmDeleteAttId === att.id ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={isImageBusy}
+                              onClick={() => handleDeleteAttachment(att)}
+                              className="flex-1 py-1.5 text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl disabled:opacity-60 cursor-pointer"
+                            >
+                              ยืนยันลบรูปนี้
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isImageBusy}
+                              onClick={() => setConfirmDeleteAttId(null)}
+                              className="px-3 py-1.5 text-[11px] font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl cursor-pointer"
+                            >
+                              ยกเลิก
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isImageBusy}
+                            onClick={() => setConfirmDeleteAttId(att.id)}
+                            className="w-full py-1.5 text-[11px] font-bold text-red-600 bg-white border border-red-200 hover:bg-red-50 rounded-xl inline-flex items-center justify-center space-x-1 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>ลบรูปนี้</span>
+                          </button>
+                        ))}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

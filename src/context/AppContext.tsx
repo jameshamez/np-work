@@ -97,6 +97,12 @@ export interface AppContextType {
     comment: string,
     attachmentsData: { name: string; url: string; type: 'image' | 'file'; size: number }[]
   ) => void;
+  /** อัปโหลดไฟล์แนบขึ้น Storage แล้วคืนลิงก์ถาวร — โยน error ออกมาให้ผู้เรียกจัดการเอง */
+  uploadAttachmentFile: (file: File) => Promise<string>;
+  /** เพิ่มรูปให้งานที่ส่งตรวจไปแล้ว (แก้รูปตอนรอตรวจ) — โยน error ออกมาให้ผู้เรียกจัดการเอง */
+  addTaskImages: (taskId: string, files: File[]) => Promise<void>;
+  /** ลบไฟล์แนบ (ผู้อัปโหลดหรือแอดมิน) — โยน error ออกมาให้ผู้เรียกจัดการเอง */
+  deleteAttachment: (attachment: Attachment) => Promise<void>;
   returnTask: (taskId: string, comment: string) => void;
   approveTask: (taskId: string, comment: string) => void;
   markNotificationRead: (notifId: string) => void;
@@ -475,9 +481,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     resultStatus?: 'success' | 'fail',
     resultReason?: string
   ) => {
+    // อัปเดตหน้าจอทันทีที่คลิก ไม่ต้องรอฐานข้อมูลตอบกลับ ถ้าบันทึกไม่สำเร็จค่อยดึงค่าจริงกลับมา
+    setTasks(prev =>
+      prev.map(t =>
+        t.id !== taskId
+          ? t
+          : {
+              ...t,
+              checklists: t.checklists.map(c =>
+                c.id !== checklistId
+                  ? c
+                  : { ...c, completed, resultStatus: completed ? resultStatus ?? 'success' : undefined, resultReason }
+              ),
+            }
+      )
+    );
+
     void run(async () => {
-      await api.updateChecklistItem(db, checklistId, completed, resultStatus, resultReason);
-      await refreshTask(taskId);
+      try {
+        await api.updateChecklistItem(db, checklistId, completed, resultStatus, resultReason);
+      } finally {
+        await refreshTask(taskId);
+      }
     });
   };
 
@@ -514,6 +539,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await refreshTask(taskId);
       await refreshLogsAndNotifications();
     });
+  };
+
+  const uploadAttachmentFile = async (file: File): Promise<string> => {
+    if (!profile) throw new Error('กรุณาเข้าสู่ระบบก่อนอัปโหลดไฟล์');
+    return api.uploadAttachmentFile(db, profile.id, file);
+  };
+
+  const addTaskImages = async (taskId: string, files: File[]): Promise<void> => {
+    if (!profile) throw new Error('กรุณาเข้าสู่ระบบก่อนอัปโหลดไฟล์');
+    const uploaded = await Promise.all(
+      files.map(async file => ({
+        fileName: file.name,
+        fileUrl: await api.uploadAttachmentFile(db, profile.id, file),
+        fileType: 'image' as const,
+        fileSize: file.size,
+      }))
+    );
+    await api.insertAttachments(db, taskId, null, profile.id, profile.full_name, uploaded);
+    await refreshTask(taskId);
+  };
+
+  const deleteAttachment = async (attachment: Attachment): Promise<void> => {
+    await api.deleteAttachment(db, attachment.id, attachment.fileUrl);
+    await refreshTask(attachment.taskId);
   };
 
   const returnTask = (taskId: string, comment: string) => {
@@ -785,6 +834,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addAnnotation,
         updateChecklist,
         submitTaskForReview,
+        uploadAttachmentFile,
+        addTaskImages,
+        deleteAttachment,
         returnTask,
         approveTask,
         markNotificationRead,

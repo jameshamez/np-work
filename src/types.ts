@@ -90,6 +90,7 @@ export interface Attachment {
   fileType: 'image' | 'file';
   fileSize: number; // in bytes
   uploadedBy: string;
+  uploadedById?: string; // users.id ของผู้อัปโหลด — ใช้ตัดสินว่าใครลบไฟล์นี้ได้
   uploadedAt: string;
 }
 

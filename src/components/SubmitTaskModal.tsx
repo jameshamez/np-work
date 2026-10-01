@@ -21,11 +21,12 @@ interface SubmitTaskModalProps {
 }
 
 export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose }) => {
-  const { currentUser, submitTaskForReview, users } = useApp();
+  const { currentUser, submitTaskForReview, uploadAttachmentFile, users } = useApp();
 
   const [comment, setComment] = useState('');
-  // รูปที่ผู้ใช้อัปโหลดเข้ามาจริง (เลือกได้หลายรูป) และรูปที่กำลังแสดงตัวอย่าง
-  const [pictures, setPictures] = useState<{ name: string; url: string; size: number }[]>([]);
+  // รูปที่ผู้ใช้เลือกไว้ (เลือกได้หลายรูป) — url เป็นลิงก์ชั่วคราวไว้แสดงตัวอย่างเท่านั้น
+  // ตัวไฟล์จริงจะถูกอัปโหลดขึ้น Storage ตอนกดส่งตรวจงาน
+  const [pictures, setPictures] = useState<{ file: File; name: string; url: string; size: number }[]>([]);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [documentName, setDocumentName] = useState('');
   const [documentSizeMB, setDocumentSizeMB] = useState<number>(0);
@@ -47,7 +48,7 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
     const files = Array.from(e.target.files ?? []);
     e.target.value = ''; // ให้เลือกไฟล์เดิมซ้ำได้หลังลบออก
     if (files.length === 0) return;
-    const added = files.map(file => ({ name: file.name, url: URL.createObjectURL(file), size: file.size }));
+    const added = files.map(file => ({ file, name: file.name, url: URL.createObjectURL(file), size: file.size }));
     setPreviewIndex(pictures.length);
     setPictures([...pictures, ...added]);
   };
@@ -76,7 +77,7 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!comment.trim()) {
       setErrorMsg('กรุณากรอกข้อความสรุปการดำเนินงาน');
@@ -84,6 +85,19 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
     }
 
     setIsSubmitting(true);
+    setErrorMsg('');
+
+    // อัปโหลดรูปขึ้น Storage ก่อน ถ้าพังให้ค้างฟอร์มไว้ ผู้ใช้จะได้กดส่งใหม่โดยไม่ต้องกรอกซ้ำ
+    let uploadedPictures: { name: string; url: string; size: number }[];
+    try {
+      uploadedPictures = await Promise.all(
+        pictures.map(async p => ({ name: p.name, url: await uploadAttachmentFile(p.file), size: p.size }))
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+      setIsSubmitting(false);
+      return;
+    }
 
     const reviewerObj = users.find(u => u.id === selectedReviewerId);
     if (reviewerObj) {
@@ -95,7 +109,7 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
     }
 
     const attachments: { name: string; url: string; type: 'image' | 'file'; size: number }[] =
-      pictures.map(p => ({ name: p.name, url: p.url, type: 'image', size: p.size }));
+      uploadedPictures.map(p => ({ name: p.name, url: p.url, type: 'image', size: p.size }));
 
     if (documentName) {
       attachments.push({
@@ -107,6 +121,7 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
     }
 
     submitTaskForReview(task.id, comment, attachments);
+    pictures.forEach(p => URL.revokeObjectURL(p.url));
     setIsSubmitting(false);
     onClose();
   };
@@ -303,7 +318,7 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
               <span className="text-[10px] text-gray-400">รองรับไฟล์ใหญ่สูงสุด 300MB</span>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center">
               <label className="flex-1 border border-gray-200 hover:border-orange-400 rounded-2xl px-3 py-2 bg-gray-50/50 cursor-pointer transition-colors flex items-center justify-between text-xs">
                 <div className="flex items-center space-x-2 truncate">
                   <FileText className="w-4 h-4 text-orange-600 shrink-0" />
@@ -318,19 +333,6 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
                   className="hidden"
                 />
               </label>
-
-              {/* Preset demo file */}
-              <button
-                type="button"
-                onClick={() => {
-                  setDocumentName('project_deliverables_v1.zip');
-                  setDocumentSizeMB(145.2);
-                  setErrorMsg('');
-                }}
-                className="px-3 py-2 text-[11px] font-bold text-orange-800 bg-orange-100 hover:bg-orange-200 rounded-xl transition-colors whitespace-nowrap cursor-pointer"
-              >
-                เลือกไฟล์ตัวอย่าง (145MB)
-              </button>
             </div>
           </div>
 
@@ -346,11 +348,11 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all hover:opacity-90 active:scale-95 inline-flex items-center space-x-1.5 cursor-pointer"
+              className="px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all hover:opacity-90 active:scale-95 inline-flex items-center space-x-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
               style={{ backgroundColor: '#ef6c00' }}
             >
               <Send className="w-3.5 h-3.5" />
-              <span>ส่งตรวจงาน (อัปเดตสถานะออโต้)</span>
+              <span>{isSubmitting ? 'กำลังอัปโหลดไฟล์...' : 'ส่งตรวจงาน (อัปเดตสถานะออโต้)'}</span>
             </button>
           </div>
 
