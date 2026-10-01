@@ -17,3 +17,35 @@
     display: none !important;
   }
 }
+
+/* รายงานผู้บริหาร (ExportReportModal) — พิมพ์เฉพาะหน้ารายงาน A4 ทีละหน้า */
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  body.np-report-open > #root {
+    display: none !important;
+  }
+
+  body.np-report-open .np-report-overlay {
+    position: static !important;
+    background: none !important;
+    backdrop-filter: none !important;
+    overflow: visible !important;
+  }
+
+  body.np-report-open .np-report-sheet {
+    box-shadow: none !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 210mm !important;
+    min-height: 297mm !important;
+    break-after: page;
+  }
+
+  body.np-report-open .np-report-sheet:last-child {
+    break-after: auto;
+  }
+}

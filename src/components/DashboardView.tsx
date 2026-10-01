@@ -31,6 +31,15 @@ export const DashboardView: React.FC = () => {
         ).toFixed(1)
       : '0.0';
 
+  // ยอดเบิกจ่ายรวมจากข้อมูลเงินงวด 2 ระดับของทุกการ์ดงาน
+  const financialList = tasks.map(t => t.twoTierFinancials).filter((f): f is NonNullable<typeof f> => !!f);
+  const totalInstallment = financialList.reduce((acc, f) => acc + f.projectInstallment, 0);
+  const totalApprovedSpend = financialList.reduce(
+    (acc, f) => acc + f.approvedRemuneration + f.approvedMaterials + f.approvedExpenses,
+    0
+  );
+  const baht = (n: number) => `${n.toLocaleString('th-TH')} บาท`;
+
   // Individual performance breakdown
   const approvedUsers = users.filter(u => u.status === 'approved');
   const userStats = approvedUsers.map(user => {
@@ -132,10 +141,11 @@ export const DashboardView: React.FC = () => {
             <span>สรุปยอดเบิกจ่าย</span>
             <span className="text-[9px] bg-emerald-800 px-1.5 py-0.5 rounded text-amber-300">KU Budget</span>
           </div>
-          <div className="text-lg font-black text-amber-300 mt-1">100,000 บาท</div>
+          <div className="text-lg font-black text-amber-300 mt-1">{baht(totalInstallment)}</div>
           <div className="text-[10px] text-emerald-200 space-y-0.5 mt-1 border-t border-emerald-800/80 pt-1">
-            <p>• เบิกโครงการ: <span className="font-extrabold text-white">100,000 บาท</span></p>
-            <p>• เบิกอาจารย์หนุ่ย: <span className="font-extrabold text-amber-300">50,000 บาท (อนุมัติ)</span></p>
+            <p>• เงินงวดโครงการรวม: <span className="font-extrabold text-white">{baht(totalInstallment)}</span></p>
+            <p>• อนุมัติเบิกจริงรวม: <span className="font-extrabold text-amber-300">{baht(totalApprovedSpend)}</span></p>
+            <p className="text-emerald-300/80">จาก {financialList.length} การ์ดที่บันทึกเงินงวด</p>
           </div>
         </div>
 

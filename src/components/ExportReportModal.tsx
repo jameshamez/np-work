@@ -1,6 +1,22 @@
-import React, { useState, useMemo } from 'react';
-import { X, Printer, Calendar, Filter, FileText, CheckCircle2, Clock, AlertTriangle, User as UserIcon, Building } from 'lucide-react';
-import { Task, User, Project } from '../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { X, Printer, Calendar, Filter, Building } from 'lucide-react';
+import { Task, TaskStatus, User, Project } from '../types';
+import {
+  STATUS_LABEL,
+  SLA_LABEL,
+  averageLeadDays,
+  buildPersonRows,
+  buildProjectRows,
+  cleanName,
+  countByStatus,
+  followUpList,
+  isInScope,
+  monthRange,
+  needsFollowUp,
+  thaiDate,
+  weekRange,
+} from '../lib/report';
 
 interface ExportReportModalProps {
   isOpen: boolean;
@@ -10,495 +26,488 @@ interface ExportReportModalProps {
   projects: Project[];
 }
 
-export const ExportReportModal: React.FC<ExportReportModalProps> = ({
-  isOpen,
-  onClose,
-  tasks,
-  users,
-  projects,
-}) => {
-  const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1); // 1-12
-  const [selectedAssignee, setSelectedAssignee] = useState<string>('all');
-  const [selectedProject, setSelectedProject] = useState<string>('all');
+// สีสถานะ — ผ่าน validate_palette (dataviz) แล้ว: รอตรวจใช้อำพันเข้มแทนเหลืองอ่อนเพื่อให้ตัดกับพื้นขาว
+const STATUS_COLOR: Record<TaskStatus, string> = {
+  approved: '#2e7d32',
+  pending_review: '#c98200',
+  pending_submission: '#1976d2',
+  returned: '#c62828',
+};
+const STATUS_ORDER: TaskStatus[] = ['approved', 'pending_review', 'pending_submission', 'returned'];
+const BRAND = '#ef6c00';
+const NAVY = '#13304a';
+
+const THAI_MONTHS = [
+  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
+];
+
+const toInputDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, onClose, tasks, users, projects }) => {
+  const today = new Date();
+  const [weekDay, setWeekDay] = useState<string>(toInputDate(today));
+  const [year, setYear] = useState<number>(today.getFullYear());
+  const [month, setMonth] = useState<number>(today.getMonth() + 1);
+  const [assigneeId, setAssigneeId] = useState<string>('all');
+  const [projectId, setProjectId] = useState<string>('all');
+
+  // ตอนสั่งพิมพ์ให้เหลือแต่รายงาน — ซ่อนตัวแอปทั้งหน้า (ดู .np-report-open ใน index.css)
+  useEffect(() => {
+    if (!isOpen) return;
+    document.body.classList.add('np-report-open');
+    return () => document.body.classList.remove('np-report-open');
+  }, [isOpen]);
+
+  const report = useMemo(() => {
+    const [y, m, d] = weekDay.split('-').map(Number);
+    const week = weekRange(new Date(y, m - 1, d));
+    const monthR = monthRange(year, month);
+    const now = new Date();
+
+    const filtered = tasks.filter(t => {
+      if (projectId !== 'all' && t.projectId !== projectId) return false;
+      if (assigneeId !== 'all' && t.assignedToUserId !== assigneeId && t.assignedTargetUserId !== assigneeId) return false;
+      return true;
+    });
+    const scopedProjects = projectId === 'all' ? projects : projects.filter(p => p.id === projectId);
+
+    const monthTasks = filtered.filter(t => isInScope(t, monthR.start, monthR.end));
+    const weekTasks = filtered.filter(t => isInScope(t, week.start, week.end));
+
+    return {
+      week,
+      month: monthR,
+      monthTasks,
+      weekTasks,
+      monthCounts: countByStatus(monthTasks),
+      weekCounts: countByStatus(weekTasks),
+      monthFollowUp: monthTasks.filter(needsFollowUp).length,
+      weekFollowUp: weekTasks.filter(needsFollowUp).length,
+      avgLead: averageLeadDays(monthTasks),
+      projectRows: buildProjectRows(monthTasks, scopedProjects),
+      weekProjectRows: buildProjectRows(weekTasks, scopedProjects).filter(r => r.total > 0),
+      personRows: buildPersonRows(monthTasks, now),
+      weekUrgent: followUpList(weekTasks),
+      monthUrgent: followUpList(monthTasks),
+      projectCount: scopedProjects.length,
+    };
+  }, [tasks, projects, weekDay, year, month, assigneeId, projectId]);
 
   if (!isOpen) return null;
 
-  // Month names in Thai
-  const thaiMonths = [
-    'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
-  ];
+  const weekLabel = `${thaiDate(report.week.start)} ถึง ${thaiDate(report.week.end)}`;
+  const monthLabel = `${thaiDate(report.month.start)} ถึง ${thaiDate(report.month.end)}`;
+  const issuedAt = thaiDate(new Date());
+  const filterNote = [
+    projectId !== 'all' ? `โครงการ: ${projects.find(p => p.id === projectId)?.name ?? ''}` : '',
+    assigneeId !== 'all' ? `ผู้รับผิดชอบ: ${cleanName(users.find(u => u.id === assigneeId)?.fullName ?? '')}` : '',
+  ]
+    .filter(Boolean)
+    .join(' • ');
 
-  // Helper to parse date string (YYYY-MM-DD) into local date parts safely
-  const parseDateParts = (dateStr: string) => {
-    if (!dateStr) {
-      const now = new Date();
-      return { year: now.getFullYear(), month: now.getMonth(), day: now.getDate() };
-    }
-    const parts = dateStr.split('-').map(Number);
-    if (parts.length === 3 && !parts.some(isNaN)) {
-      return { year: parts[0], month: parts[1] - 1, day: parts[2] };
-    }
-    const now = new Date();
-    return { year: now.getFullYear(), month: now.getMonth(), day: now.getDate() };
-  };
+  const mTotal = report.monthTasks.length;
+  const mInProgress = report.monthCounts.pending_submission + report.monthCounts.pending_review;
+  const successPct = mTotal > 0 ? Math.round((report.monthCounts.approved / mTotal) * 100) : 0;
+  const busiestProject = report.projectRows.find(r => r.total > 0);
 
-  // Helper to calculate date range label and bounds
-  const getDateRangeInfo = () => {
-    if (reportPeriod === 'daily') {
-      const { year, month, day } = parseDateParts(selectedDate);
-      const startDate = new Date(year, month, day, 0, 0, 0, 0);
-      const endDate = new Date(year, month, day, 23, 59, 59, 999);
-      const monthName = thaiMonths[month];
-      const thaiYear = year + 543;
+  return createPortal(
+    <div className="np-report-overlay fixed inset-0 z-50 bg-black/60 backdrop-blur-xs overflow-y-auto">
+      {/* แถบควบคุม (ไม่พิมพ์) */}
+      <div className="sticky top-0 z-10 bg-white border-b border-orange-100 shadow-sm print:hidden">
+        <div className="max-w-[900px] mx-auto px-4 py-3 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-extrabold text-gray-900">รายงานสรุปสถานะโครงการและผลการปฏิบัติงาน</h2>
+              <p className="text-[11px] text-gray-500">คำนวณจากข้อมูลจริงในระบบ ณ ตอนเปิดรายงาน • เลือกช่วงเวลาแล้วกดพิมพ์เพื่อบันทึกเป็น PDF</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-4 py-2 text-white rounded-xl text-xs font-extrabold shadow-md hover:opacity-90 inline-flex items-center gap-1.5 cursor-pointer"
+                style={{ backgroundColor: BRAND }}
+              >
+                <Printer className="w-4 h-4" />
+                <span>พิมพ์ / บันทึก PDF</span>
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-600 cursor-pointer"
+                aria-label="ปิด"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
 
-      return {
-        label: `ประจำวันที่ ${day} ${monthName} พ.ศ. ${thaiYear}`,
-        startDate,
-        endDate,
-      };
-    } else if (reportPeriod === 'weekly') {
-      const { year, month, day } = parseDateParts(selectedDate);
-      const baseDate = new Date(year, month, day, 12, 0, 0, 0);
-      const dayOfWeek = baseDate.getDay(); // 0 is Sun, 1 is Mon...
-      const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-      
-      const startDate = new Date(year, month, day + diffToMon, 0, 0, 0, 0);
-      const endDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + 6, 23, 59, 59, 999);
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            <label className="text-[11px] font-bold text-gray-700 space-y-1">
+              <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5 text-orange-600" />สัปดาห์ (เลือกวันใดก็ได้ในสัปดาห์)</span>
+              <input
+                type="date"
+                value={weekDay}
+                onChange={e => e.target.value && setWeekDay(e.target.value)}
+                className="w-full py-1.5 px-2.5 bg-white border border-gray-200 rounded-lg text-xs font-bold"
+              />
+            </label>
+            <label className="text-[11px] font-bold text-gray-700 space-y-1">
+              <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5 text-orange-600" />เดือน</span>
+              <div className="grid grid-cols-2 gap-1">
+                <select value={month} onChange={e => setMonth(Number(e.target.value))} className="py-1.5 px-2 bg-white border border-gray-200 rounded-lg text-xs font-bold">
+                  {THAI_MONTHS.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
+                </select>
+                <select value={year} onChange={e => setYear(Number(e.target.value))} className="py-1.5 px-2 bg-white border border-gray-200 rounded-lg text-xs font-bold">
+                  {[today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1].map(y => (
+                    <option key={y} value={y}>{y + 543}</option>
+                  ))}
+                </select>
+              </div>
+            </label>
+            <label className="text-[11px] font-bold text-gray-700 space-y-1">
+              <span className="flex items-center gap-1"><Building className="w-3.5 h-3.5 text-orange-600" />โครงการ</span>
+              <select value={projectId} onChange={e => setProjectId(e.target.value)} className="w-full py-1.5 px-2 bg-white border border-gray-200 rounded-lg text-xs font-bold">
+                <option value="all">ทุกโครงการ ({projects.length})</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+            <label className="text-[11px] font-bold text-gray-700 space-y-1">
+              <span className="flex items-center gap-1"><Filter className="w-3.5 h-3.5 text-orange-600" />ผู้รับผิดชอบ</span>
+              <select value={assigneeId} onChange={e => setAssigneeId(e.target.value)} className="w-full py-1.5 px-2 bg-white border border-gray-200 rounded-lg text-xs font-bold">
+                <option value="all">ทุกคน</option>
+                {users.filter(u => u.status === 'approved').map(u => (
+                  <option key={u.id} value={u.id}>{cleanName(u.fullName)}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
 
-      const formatD = (date: Date) => 
-        `${date.getDate()} ${thaiMonths[date.getMonth()]} ${date.getFullYear() + 543}`;
+      <div className="np-report-pages py-6 px-3 space-y-6 print:p-0 print:space-y-0">
+        {/* หน้า 1 — สรุปผู้บริหาร */}
+        <Sheet>
+          <h1 className="text-[40px] font-black tracking-tight leading-none">
+            <span style={{ color: BRAND }}>NP</span> <span className="text-slate-800">TASKWORK</span>
+          </h1>
+          <h2 className="mt-8 text-2xl font-extrabold text-slate-900 pb-2 border-b-2 border-blue-500">
+            รายงานสรุปสถานะโครงการและผลการปฏิบัติงาน
+          </h2>
+          <p className="mt-2 text-sm text-slate-500">รายงานรายสัปดาห์และรายเดือนจากข้อมูลในระบบ • ออกรายงานวันที่ {issuedAt}</p>
+          <Para label="วัตถุประสงค์">
+            สรุปภาพรวมงาน ความคืบหน้า ความเสี่ยง และภาระงานรายโครงการ เพื่อให้ผู้บริหารเห็นประเด็นที่ต้องตัดสินใจได้ภายในไม่กี่นาที
+          </Para>
+          <Para label="รอบรายงาน">
+            รายสัปดาห์ {weekLabel} และรายเดือน {monthLabel}
+            {filterNote && <> • {filterNote}</>}
+          </Para>
 
-      return {
-        label: `ประจำสัปดาห์วันที่ ${formatD(startDate)} - ${formatD(endDate)}`,
-        startDate,
-        endDate,
-      };
-    } else {
-      // Monthly
-      const startDate = new Date(selectedYear, selectedMonth - 1, 1, 0, 0, 0, 0);
-      const endDate = new Date(selectedYear, selectedMonth, 0, 23, 59, 59, 999);
-      const monthName = thaiMonths[selectedMonth - 1];
-      const thaiYear = selectedYear + 543;
+          <Kpis
+            items={[
+              { label: 'งานทั้งหมด', value: mTotal, note: `ครอบคลุม ${report.projectCount} โครงการ`, color: BRAND, bg: '#fff3e8' },
+              { label: 'อนุมัติแล้ว', value: report.monthCounts.approved, note: `อัตราสำเร็จ ${successPct}%`, color: STATUS_COLOR.approved, bg: '#eaf5ec' },
+              { label: 'อยู่ระหว่างดำเนินงาน', value: mInProgress, note: 'รอส่งและรอตรวจ', color: STATUS_COLOR.pending_submission, bg: '#e9f2fb' },
+              { label: 'ต้องติดตาม', value: report.monthFollowUp, note: 'ล่าช้า ไม่มีอัปเดต หรือตีกลับ', color: STATUS_COLOR.returned, bg: '#fcecec' },
+            ]}
+          />
 
-      return {
-        label: `ประจำเดือน${monthName} พ.ศ. ${thaiYear}`,
-        startDate,
-        endDate,
-      };
-    }
-  };
+          <h3 className="mt-8 mb-3 text-lg font-extrabold text-slate-800">สัดส่วนสถานะงานทั้งหมด</h3>
+          <StatusDonut counts={report.monthCounts} total={mTotal} />
 
-  const rangeInfo = getDateRangeInfo();
+          <Para label="ข้อสรุปผู้บริหาร">
+            {mTotal === 0
+              ? 'ไม่มีงานในขอบเขตช่วงเวลาที่เลือก'
+              : `งานอนุมัติแล้ว ${report.monthCounts.approved} จาก ${mTotal} งาน ขณะที่มี ${report.monthFollowUp} งานต้องติดตามเป็นพิเศษ` +
+                (report.avgLead !== null ? ` ระยะเวลาดำเนินงานเฉลี่ยของงานที่ปิดแล้วอยู่ที่ ${report.avgLead} วัน` : ' และยังไม่มีงานที่ปิดในช่วงนี้')}
+          </Para>
+        </Sheet>
 
-  // Filter tasks strictly based on period, assignee, project
-  const displayTasks = useMemo(() => {
-    return tasks.filter(task => {
-      // 1. Filter by assignee
-      if (selectedAssignee !== 'all') {
-        const matchedUser = users.find(u => u.id === selectedAssignee);
-        const nameToMatch = matchedUser ? matchedUser.fullName.replace(/\s*\([^)]*\)/g, '').trim() : '';
-        const taskOwner = (task.assignedToUserName || '').replace(/\s*\([^)]*\)/g, '').trim();
-        const matchesUser = task.assignedToUserId === selectedAssignee || 
-                            task.assignedTargetUserId === selectedAssignee || 
-                            (nameToMatch && taskOwner.includes(nameToMatch));
-        if (!matchesUser) return false;
-      }
+        {/* หน้า 2 — ภาพรวมโครงการ */}
+        <Sheet>
+          <SheetTitle>ภาพรวมโครงการทั้งหมด</SheetTitle>
+          <Para label="มุมมองการอ่าน">
+            เรียงโครงการตามจำนวนงาน เพื่อให้เห็นโครงการที่ใช้ทรัพยากรมากและโครงการที่มีสัญญาณเสี่ยงก่อน (ขอบเขตรายเดือน {monthLabel})
+          </Para>
+          <Table
+            head={['ลำดับ', 'โครงการ', 'งานทั้งหมด', 'เสร็จแล้ว', 'ความสำเร็จ', 'งานเสี่ยง']}
+            rows={report.projectRows.map((r, i) => [i + 1, r.name, r.total, r.done, `${r.successPct}%`, r.risk])}
+            empty="ไม่มีโครงการ"
+          />
+          <h3 className="mt-8 mb-2 text-base font-extrabold text-slate-800">จำนวนงานตามโครงการ 7 อันดับแรก</h3>
+          <BarChart data={report.projectRows.slice(0, 7).map(r => ({ label: r.name, value: r.total }))} color={BRAND} unit="งาน" />
+        </Sheet>
 
-      // 2. Filter by project
-      if (selectedProject !== 'all' && task.projectId !== selectedProject) {
-        return false;
-      }
+        {/* หน้า 3 — รายสัปดาห์ */}
+        <Sheet>
+          <SheetTitle>รายงานรายสัปดาห์</SheetTitle>
+          <Para label="ช่วงเวลา">{weekLabel} ใช้หลักงานที่มีความเคลื่อนไหวในสัปดาห์หรือยังเปิดดำเนินการอยู่</Para>
+          <Kpis
+            items={[
+              { label: 'งานในขอบเขตสัปดาห์', value: report.weekTasks.length, note: 'รวมงานที่ยังเปิดอยู่', color: BRAND, bg: '#fff3e8' },
+              { label: 'รอตรวจ', value: report.weekCounts.pending_review, note: 'รอผู้ตรวจดำเนินการ', color: STATUS_COLOR.pending_review, bg: '#fdf6e3' },
+              { label: 'รอส่งงาน', value: report.weekCounts.pending_submission, note: 'อยู่กับผู้รับผิดชอบ', color: STATUS_COLOR.pending_submission, bg: '#e9f2fb' },
+              { label: 'ต้องติดตาม', value: report.weekFollowUp, note: 'ความเสี่ยง SLA', color: STATUS_COLOR.returned, bg: '#fcecec' },
+            ]}
+          />
+          <h3 className="mt-8 mb-3 text-base font-extrabold text-slate-800">รายการเร่งด่วนประจำสัปดาห์</h3>
+          <Table
+            head={['#', 'รหัส', 'ชื่องาน', 'ผู้รับผิดชอบ', 'สถานะ', 'SLA']}
+            rows={report.weekUrgent.map((t, i) => [i + 1, t.code, t.title, cleanName(t.assignedToUserName), STATUS_LABEL[t.status], SLA_LABEL[t.slaStatus]])}
+            empty="ไม่มีงานเร่งด่วนในสัปดาห์นี้"
+          />
+          <Para label="ข้อเสนอการประชุมประจำสัปดาห์">
+            {report.weekTasks.length === 0
+              ? 'ไม่มีงานในขอบเขตสัปดาห์นี้'
+              : `เริ่มจากงานล่าช้าและงานตีกลับ ${report.weekFollowUp} งาน จากนั้นตรวจงานรอตรวจ ${report.weekCounts.pending_review} งานที่สามารถปิดได้เร็ว และยืนยันกำหนดส่งของงานรอส่ง ${report.weekCounts.pending_submission} งาน`}
+          </Para>
+        </Sheet>
 
-      // 3. Filter by date range (createdAt, lastUpdatedAt, completedAt, or deadlineAt)
-      const tCreated = task.createdAt ? new Date(task.createdAt) : null;
-      const tUpdated = task.lastUpdatedAt ? new Date(task.lastUpdatedAt) : null;
-      const tCompleted = task.completedAt ? new Date(task.completedAt) : null;
-      const tDeadline = task.deadlineAt ? new Date(task.deadlineAt) : null;
+        {/* หน้า 4 — รายสัปดาห์แยกตามโครงการ */}
+        <Sheet>
+          <SheetTitle>สรุปรายสัปดาห์แยกตามโครงการ</SheetTitle>
+          <Table
+            head={['#', 'โครงการ', 'รวม', 'เสร็จ', 'รอตรวจ', 'รอส่ง', 'เสี่ยง']}
+            rows={report.weekProjectRows.map((r, i) => [i + 1, r.name, r.total, r.done, r.pendingReview, r.pendingSubmission, r.risk])}
+            empty="ไม่มีงานในขอบเขตสัปดาห์นี้"
+          />
+          <h3 className="mt-8 mb-2 text-base font-extrabold text-slate-800">สิ่งที่ผู้บริหารควรติดตาม</h3>
+          <ul className="list-disc pl-6 space-y-1 text-sm text-slate-700">
+            {report.weekFollowUp > 0 && (
+              <li>มอบหมายเจ้าของและวันปิดที่ชัดเจนให้ {report.weekFollowUp} งานที่ล่าช้า ตีกลับ หรือไม่มีการอัปเดต</li>
+            )}
+            {report.weekCounts.pending_review > 0 && (
+              <li>เร่งตรวจ {report.weekCounts.pending_review} งานที่อยู่สถานะรอตรวจ เพื่อลดงานค้างระหว่างผู้ปฏิบัติกับผู้อนุมัติ</li>
+            )}
+            {report.weekProjectRows[0] && report.weekProjectRows[0].total > 1 && (
+              <li>ทบทวนกำลังคนของโครงการ “{report.weekProjectRows[0].name}” ซึ่งมีงานมากที่สุด ({report.weekProjectRows[0].total} งาน) และย้ายทรัพยากรเมื่อกำหนดส่งทับซ้อนกัน</li>
+            )}
+            {report.weekFollowUp === 0 && report.weekCounts.pending_review === 0 && <li>ไม่มีประเด็นเร่งด่วนในสัปดาห์นี้</li>}
+          </ul>
+        </Sheet>
 
-      const isInRange = (d: Date | null) => {
-        if (!d || isNaN(d.getTime())) return false;
-        return d >= rangeInfo.startDate && d <= rangeInfo.endDate;
-      };
+        {/* หน้า 5 — รายเดือน */}
+        <Sheet>
+          <SheetTitle>รายงานรายเดือน</SheetTitle>
+          <Para label="ช่วงเวลา">{monthLabel} แสดงภาพรวมงานที่ยังเปิดดำเนินการหรือมีความเคลื่อนไหวภายในเดือน</Para>
+          <Kpis
+            items={[
+              { label: 'งานในขอบเขตเดือน', value: mTotal, note: 'รวมงานต่อเนื่อง', color: BRAND, bg: '#fff3e8' },
+              { label: 'อนุมัติแล้ว', value: report.monthCounts.approved, note: 'ปิดงานในขอบเขต', color: STATUS_COLOR.approved, bg: '#eaf5ec' },
+              { label: 'รอตรวจ', value: report.monthCounts.pending_review, note: 'คิวอนุมัติ', color: STATUS_COLOR.pending_review, bg: '#fdf6e3' },
+              { label: 'ต้องติดตาม', value: report.monthFollowUp, note: 'ประเด็น SLA', color: STATUS_COLOR.returned, bg: '#fcecec' },
+            ]}
+          />
+          <h3 className="mt-8 mb-2 text-base font-extrabold text-slate-800">ภาระงานตามผู้รับผิดชอบ</h3>
+          <BarChart data={report.personRows.map(p => ({ label: p.name, value: p.total }))} color={STATUS_COLOR.pending_submission} unit="งาน" />
+          <Para label="ข้อสังเกต">
+            กราฟภาระงานช่วยชี้ผู้รับผิดชอบที่มีงานกระจุกตัว ควรอ่านร่วมกับจำนวนงานล่าช้าและงานรอตรวจ ไม่ควรใช้จำนวนงานเพียงตัวเดียวในการประเมินผล
+          </Para>
+        </Sheet>
 
-      // Matches if date falls inside the period bounds
-      const matchesPeriod = isInRange(tCreated) || isInRange(tUpdated) || isInRange(tCompleted) || isInRange(tDeadline);
-      
-      // Or if task was active during the period
-      const isTaskActive = tCreated && tCreated <= rangeInfo.endDate && (!tCompleted || tCompleted >= rangeInfo.startDate);
+        {/* หน้า 6 — รายบุคคล */}
+        <Sheet>
+          <SheetTitle>ผลการปฏิบัติงานรายบุคคล</SheetTitle>
+          <Table
+            head={['ผู้รับผิดชอบ', 'งานทั้งหมด', 'เสร็จแล้ว', 'กำลังดำเนินการ', 'ต้องติดตาม', 'Lead time เฉลี่ย']}
+            rows={report.personRows.map(p => [p.name, p.total, p.done, p.inProgress, p.followUp, p.avgLeadDays ?? '-'])}
+            empty="ไม่มีงานในขอบเขตเดือนนี้"
+          />
+          <h3 className="mt-8 mb-2 text-base font-extrabold text-slate-800">ความตรงต่อเวลาของการส่งงาน</h3>
+          <Table
+            head={['ผู้รับผิดชอบ', 'เสร็จก่อนกำหนด', 'เสร็จตรงเวลา', 'เสร็จล่าช้า', 'ค้างเกินกำหนด']}
+            rows={report.personRows.map(p => [p.name, p.early, p.onTime, p.late, p.overdue])}
+            empty="ไม่มีงานในขอบเขตเดือนนี้"
+          />
+          <p className="mt-2 text-xs text-slate-500">
+            เทียบวันที่อนุมัติปิดงานกับวันกำหนดส่ง (ตามเวลาไทย) • ค้างเกินกำหนด = งานที่ยังไม่ปิดและเลยวันกำหนดส่งแล้ว
+          </p>
+          <h3 className="mt-6 mb-1 text-base font-extrabold text-slate-800">หลักการอ่านผลรายบุคคล</h3>
+          <Para label="การใช้งาน">
+            ใช้เพื่อปรับสมดุลงานและระบุจุดติดขัดของกระบวนการ ไม่ควรสรุปประสิทธิภาพจากจำนวนงานเพียงอย่างเดียว เพราะความซับซ้อนและระยะเวลาของแต่ละงานแตกต่างกัน
+          </Para>
+        </Sheet>
 
-      return matchesPeriod || isTaskActive;
-    });
-  }, [tasks, selectedAssignee, selectedProject, rangeInfo.startDate, rangeInfo.endDate, users]);
+        {/* หน้า 7 — งานที่ต้องติดตาม */}
+        <Sheet>
+          <SheetTitle>รายละเอียดงานที่ต้องติดตาม</SheetTitle>
+          <Table
+            head={['#', 'รหัส', 'โครงการ', 'ชื่องาน', 'เจ้าของ', 'สถานะ', 'SLA', 'กำหนดส่ง']}
+            rows={report.monthUrgent.map((t, i) => [
+              i + 1, t.code, t.projectName, t.title, cleanName(t.assignedToUserName),
+              STATUS_LABEL[t.status], SLA_LABEL[t.slaStatus], thaiDate(t.deadlineAt),
+            ])}
+            empty="ไม่มีงานที่ต้องติดตามในเดือนนี้"
+          />
+          {report.monthUrgent.some(t => t.delayReason) && (
+            <>
+              <h3 className="mt-6 mb-2 text-base font-extrabold text-slate-800">หมายเหตุสาเหตุล่าช้าที่บันทึกไว้</h3>
+              <ul className="list-disc pl-6 space-y-1 text-sm text-slate-700">
+                {report.monthUrgent.filter(t => t.delayReason).map(t => (
+                  <li key={t.id}><span className="font-bold">{t.code}</span> {t.delayReason}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Sheet>
 
-  // Calculate statistics
-  const totalCount = displayTasks.length;
-  const approvedCount = displayTasks.filter(t => t.status === 'approved').length;
-  const pendingCount = displayTasks.filter(t => t.status === 'pending_submission' || t.status === 'pending_review').length;
-  const returnedOrDelayedCount = displayTasks.filter(t => t.status === 'returned' || t.slaStatus === 'delayed').length;
+        {/* หน้า 8 — นิยาม */}
+        <Sheet>
+          <SheetTitle>นิยามตัวชี้วัด</SheetTitle>
+          <Table
+            head={['ตัวชี้วัด', 'คำอธิบาย']}
+            rows={[
+              ['อัตราความสำเร็จ', 'จำนวนงานอนุมัติแล้ว หารด้วยจำนวนงานทั้งหมดในขอบเขตรายงาน'],
+              ['งานต้องติดตาม', 'งานที่ยังไม่ปิดและถูกตีกลับ หรือ SLA ล่าช้า / ไม่มีการอัปเดตตามเกณฑ์ของระบบ'],
+              ['Lead time', 'จำนวนวันตั้งแต่เริ่มงานจนได้รับอนุมัติปิดงาน'],
+              ['ความตรงต่อเวลา', 'เทียบวันที่อนุมัติปิดงานกับวันกำหนดส่ง: ก่อนกำหนด / ตรงวัน / หลังกำหนด'],
+              ['งานในขอบเขตช่วงเวลา', 'งานที่เปิดก่อนสิ้นช่วง และยังไม่ปิดก่อนเริ่มช่วง (ไม่นับร่าง)'],
+            ]}
+            empty=""
+          />
+        </Sheet>
+      </div>
+    </div>,
+    document.body
+  );
+};
 
-  const handlePrint = () => {
-    window.print();
-  };
+// ---------------------------------------------------------------------------
+// ชิ้นส่วนหน้ารายงาน
+// ---------------------------------------------------------------------------
+
+const Sheet: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <section className="np-report-sheet relative mx-auto bg-white text-slate-800 shadow-xl w-full max-w-[794px] min-h-[1123px] px-[56px] pt-[56px] pb-[72px] flex flex-col">
+    <div className="absolute top-5 right-[56px] text-[10px] font-bold tracking-wide text-slate-500">NP TASKWORK | MANAGEMENT REPORT</div>
+    <div className="flex-1">{children}</div>
+    <div className="absolute bottom-6 inset-x-0 text-center text-[10px] text-slate-500">
+      รายงานสรุปสถานะโครงการและผลการปฏิบัติงาน <span style={{ color: BRAND }}>•</span>
+    </div>
+  </section>
+);
+
+const SheetTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <h2 className="text-2xl font-extrabold text-slate-900 mb-2">{children}</h2>
+);
+
+const Para: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <p className="mt-4 text-sm leading-relaxed text-slate-600">
+    <span className="font-extrabold text-slate-900">{label}</span> {children}
+  </p>
+);
+
+const Kpis: React.FC<{ items: { label: string; value: number; note: string; color: string; bg: string }[] }> = ({ items }) => (
+  <div className="mt-6 grid grid-cols-4 border border-slate-200">
+    {items.map(k => (
+      <div key={k.label} className="p-3 border-r last:border-r-0 border-slate-200" style={{ backgroundColor: k.bg }}>
+        <div className="text-xs font-bold text-slate-700">{k.label}</div>
+        <div className="mt-2 text-4xl font-black leading-none" style={{ color: k.color }}>{k.value}</div>
+        <div className="mt-2 text-[11px] text-slate-600">{k.note}</div>
+      </div>
+    ))}
+  </div>
+);
+
+const Table: React.FC<{ head: string[]; rows: (string | number)[][]; empty: string }> = ({ head, rows, empty }) => (
+  <table className="mt-4 w-full border-collapse text-xs">
+    <thead>
+      <tr>
+        {head.map(h => (
+          <th key={h} className="px-2 py-2.5 text-center font-bold text-white border border-slate-300" style={{ backgroundColor: NAVY }}>{h}</th>
+        ))}
+      </tr>
+    </thead>
+    <tbody>
+      {rows.length === 0 ? (
+        <tr>
+          <td colSpan={head.length} className="px-2 py-6 text-center text-slate-500 border border-slate-200">{empty}</td>
+        </tr>
+      ) : (
+        rows.map((row, i) => (
+          <tr key={i} className={i % 2 ? 'bg-slate-50' : 'bg-white'} style={{ breakInside: 'avoid' }}>
+            {row.map((cell, j) => (
+              <td key={j} className={`px-2 py-2 border border-slate-200 ${typeof cell === 'number' ? 'text-center tabular-nums' : ''}`}>{cell}</td>
+            ))}
+          </tr>
+        ))
+      )}
+    </tbody>
+  </table>
+);
+
+/** โดนัทสัดส่วนสถานะ — ทุกชิ้นมีป้ายชื่อ จำนวน และเปอร์เซ็นต์ในคำอธิบาย ไม่พึ่งสีอย่างเดียว */
+const StatusDonut: React.FC<{ counts: Record<TaskStatus, number>; total: number }> = ({ counts, total }) => {
+  const r = 70;
+  const circumference = 2 * Math.PI * r;
+  const gap = total > 1 ? 2 : 0; // ช่องว่าง 2px ระหว่างชิ้น
+  let offset = 0;
+  const segments = STATUS_ORDER.filter(s => counts[s] > 0).map(s => {
+    const len = (counts[s] / Math.max(total, 1)) * circumference;
+    const seg = { status: s, dash: Math.max(len - gap, 0), offset };
+    offset += len;
+    return seg;
+  });
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 md:p-6 overflow-y-auto print:p-0 print:bg-white print:static print:inset-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden print:shadow-none print:border-none print:max-h-none print:w-full">
-        
-        {/* Modal Header (Hidden on Print) */}
-        <div className="p-4 md:p-5 bg-gradient-to-r from-orange-600 via-amber-600 to-orange-500 text-white flex items-center justify-between shrink-0 print:hidden">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center">
-              <FileText className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold">ส่งออกรายงานสรุปผลการทำงาน</h2>
-              <p className="text-xs text-orange-100">
-                เลือกประเภทช่วงเวลา รายวัน รายสัปดาห์ หรือรายเดือน ก่อนพิมพ์หรือส่งออกไฟล์ PDF
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors cursor-pointer"
+    <div className="flex items-center gap-10 pl-6">
+      <svg width="200" height="200" viewBox="0 0 200 200" role="img" aria-label="สัดส่วนสถานะงาน">
+        <circle cx="100" cy="100" r={r} fill="none" stroke="#eef1f4" strokeWidth="36" />
+        {segments.map(seg => (
+          <circle
+            key={seg.status}
+            cx="100"
+            cy="100"
+            r={r}
+            fill="none"
+            stroke={STATUS_COLOR[seg.status]}
+            strokeWidth="36"
+            strokeDasharray={`${seg.dash} ${circumference - seg.dash}`}
+            strokeDashoffset={-seg.offset}
+            transform="rotate(-90 100 100)"
           >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+            <title>{`${STATUS_LABEL[seg.status]} ${counts[seg.status]} งาน`}</title>
+          </circle>
+        ))}
+        <text x="100" y="100" textAnchor="middle" className="fill-slate-800" style={{ fontSize: 30, fontWeight: 800 }}>{total}</text>
+        <text x="100" y="122" textAnchor="middle" className="fill-slate-500" style={{ fontSize: 11 }}>งานทั้งหมด</text>
+      </svg>
+      <ul className="space-y-3">
+        {STATUS_ORDER.map(s => (
+          <li key={s} className="flex items-center gap-3 text-sm font-bold text-slate-700">
+            <span className="w-6 h-4 rounded-sm shrink-0" style={{ backgroundColor: STATUS_COLOR[s] }} />
+            {STATUS_LABEL[s]} {counts[s]} งาน ({total > 0 ? Math.round((counts[s] / total) * 100) : 0}%)
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
 
-        {/* Modal Controls / Filters (Hidden on Print) */}
-        <div className="p-4 bg-orange-50/50 border-b border-orange-100 space-y-4 shrink-0 print:hidden">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            
-            {/* 1. Period Selector (Daily / Weekly / Monthly) */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1.5 flex items-center space-x-1">
-                <Calendar className="w-3.5 h-3.5 text-orange-600" />
-                <span>1. รูปแบบช่วงเวลารายงาน</span>
-              </label>
-              <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-xl border border-gray-200 shadow-2xs">
-                <button
-                  type="button"
-                  onClick={() => setReportPeriod('daily')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    reportPeriod === 'daily'
-                      ? 'bg-orange-500 text-white shadow-2xs'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  รายวัน
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReportPeriod('weekly')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    reportPeriod === 'weekly'
-                      ? 'bg-orange-500 text-white shadow-2xs'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  รายสัปดาห์
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReportPeriod('monthly')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    reportPeriod === 'monthly'
-                      ? 'bg-orange-500 text-white shadow-2xs'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  รายเดือน
-                </button>
-              </div>
-            </div>
-
-            {/* 2. Specific Date / Range Input */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1.5">
-                2. {reportPeriod === 'daily' ? 'เลือกวันที่' : reportPeriod === 'weekly' ? 'เลือกสัปดาห์ (ระบุวันในสัปดาห์)' : 'เลือกเดือนและปี'}
-              </label>
-              {reportPeriod === 'monthly' ? (
-                <div className="grid grid-cols-2 gap-2">
-                  <select
-                    value={selectedMonth}
-                    onChange={e => setSelectedMonth(Number(e.target.value))}
-                    className="w-full py-2 px-3 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-                  >
-                    {thaiMonths.map((m, idx) => (
-                      <option key={idx + 1} value={idx + 1}>
-                        เดือน {m}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={selectedYear}
-                    onChange={e => setSelectedYear(Number(e.target.value))}
-                    className="w-full py-2 px-3 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-                  >
-                    {[2025, 2026, 2027].map(y => (
-                      <option key={y} value={y}>
-                        พ.ศ. {y + 543}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={e => setSelectedDate(e.target.value)}
-                  className="w-full py-2 px-3 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-                />
-              )}
-            </div>
-
-            {/* 3. Assignee Filter */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1.5 flex items-center space-x-1">
-                <Filter className="w-3.5 h-3.5 text-orange-600" />
-                <span>3. กรองผู้รับผิดชอบ</span>
-              </label>
-              <select
-                value={selectedAssignee}
-                onChange={e => setSelectedAssignee(e.target.value)}
-                className="w-full py-2 px-3 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-              >
-                <option value="all">แสดงผู้รับผิดชอบทุกคน</option>
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>
-                    {u.fullName.replace(/\s*\([^)]*\)/g, '')}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 4. Project Filter */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1.5 flex items-center space-x-1">
-                <Building className="w-3.5 h-3.5 text-orange-600" />
-                <span>4. กรองโครงการ</span>
-              </label>
-              <select
-                value={selectedProject}
-                onChange={e => setSelectedProject(e.target.value)}
-                className="w-full py-2 px-3 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer truncate"
-              >
-                <option value="all">แสดงทุกโครงการ ({projects.length})</option>
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
+/** กราฟแท่งชุดเดียว — ตัวเลขกำกับบนแท่ง ชื่ออยู่ใต้แท่ง แท่งค่า 0 แสดงเป็นเส้นฐาน */
+const BarChart: React.FC<{ data: { label: string; value: number }[]; color: string; unit: string }> = ({ data, color, unit }) => {
+  if (data.length === 0) {
+    return <p className="text-sm text-slate-500 py-6 text-center border border-dashed border-slate-200">ไม่มีข้อมูล</p>;
+  }
+  const max = Math.max(...data.map(d => d.value), 1);
+  const H = 170;
+  return (
+    <div>
+      <div className="flex items-end gap-4 border-b border-slate-300" style={{ height: H + 28 }}>
+        {data.map(d => (
+          <div key={d.label} className="flex-1 min-w-0 flex flex-col items-center justify-end" title={`${d.label}: ${d.value} ${unit}`}>
+            <span className="text-sm font-extrabold text-slate-800 mb-1 tabular-nums">{d.value}</span>
+            <div
+              className="w-full max-w-[90px] rounded-t"
+              style={{ height: d.value > 0 ? (d.value / max) * H : 1, backgroundColor: d.value > 0 ? color : '#cbd5e1' }}
+            />
           </div>
-        </div>
-
-        {/* Printable Area / Report Preview */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-6 print:p-0 print:overflow-visible">
-          
-          {/* Printable Official Document Header */}
-          <div className="border-b-2 border-orange-500 pb-4 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 rounded-xl bg-orange-600 text-white font-black text-xl flex items-center justify-center shadow-md">
-                NP
-              </div>
-              <div>
-                <h1 className="text-xl font-extrabold text-gray-900 tracking-tight">TASKWORK PRO</h1>
-                <p className="text-xs text-orange-600 font-bold">ระบบติดตามงานและวัดผลองค์กรระดับสูง</p>
-              </div>
-            </div>
-            <div className="text-right">
-              <h2 className="text-base font-bold text-gray-800">
-                รายงานสรุปผลการปฏิบัติงาน ({reportPeriod === 'daily' ? 'รายวัน' : reportPeriod === 'weekly' ? 'รายสัปดาห์' : 'รายเดือน'})
-              </h2>
-              <p className="text-xs text-gray-600 font-semibold mt-0.5">{rangeInfo.label}</p>
-              <p className="text-[10px] text-gray-400 mt-1">
-                วันที่ออกรายงาน: {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })} น.
-              </p>
-            </div>
-          </div>
-
-          {/* Stat Cards Summary */}
-          <div className="grid grid-cols-4 gap-3">
-            <div className="bg-orange-50/60 p-3.5 rounded-xl border border-orange-200">
-              <div className="flex items-center justify-between text-xs text-orange-800 font-bold">
-                <span>งานทั้งหมด</span>
-                <FileText className="w-4 h-4 text-orange-600" />
-              </div>
-              <div className="text-2xl font-black text-orange-950 mt-1.5">{totalCount}</div>
-              <p className="text-[10px] text-orange-600 font-medium mt-0.5">รายการ</p>
-            </div>
-
-            <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-200">
-              <div className="flex items-center justify-between text-xs text-emerald-800 font-bold">
-                <span>อนุมัติเสร็จสิ้น</span>
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              </div>
-              <div className="text-2xl font-black text-emerald-950 mt-1.5">{approvedCount}</div>
-              <p className="text-[10px] text-emerald-600 font-medium mt-0.5">
-                คิดเป็น {totalCount > 0 ? Math.round((approvedCount / totalCount) * 100) : 0}%
-              </p>
-            </div>
-
-            <div className="bg-blue-50/60 p-3.5 rounded-xl border border-blue-200">
-              <div className="flex items-center justify-between text-xs text-blue-800 font-bold">
-                <span>อยู่ระหว่างดำเนินงาน</span>
-                <Clock className="w-4 h-4 text-blue-600" />
-              </div>
-              <div className="text-2xl font-black text-blue-950 mt-1.5">{pendingCount}</div>
-              <p className="text-[10px] text-blue-600 font-medium mt-0.5">รอส่ง / รอตรวจ</p>
-            </div>
-
-            <div className="bg-red-50/60 p-3.5 rounded-xl border border-red-200">
-              <div className="flex items-center justify-between text-xs text-red-800 font-bold">
-                <span>ล่าช้า / ตีกลับ</span>
-                <AlertTriangle className="w-4 h-4 text-red-600" />
-              </div>
-              <div className="text-2xl font-black text-red-950 mt-1.5">{returnedOrDelayedCount}</div>
-              <p className="text-[10px] text-red-600 font-medium mt-0.5">ต้องติดตามด่วน</p>
-            </div>
-          </div>
-
-          {/* Detailed Task Table */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center space-x-1.5">
-                <Building className="w-4 h-4 text-orange-600" />
-                <span>ตารางรายละเอียดงาน ({displayTasks.length} รายการ)</span>
-              </h3>
-              {selectedAssignee !== 'all' && (
-                <span className="text-xs bg-orange-100 text-orange-800 px-2.5 py-0.5 rounded-full font-bold">
-                  ผู้รับผิดชอบ: {users.find(u => u.id === selectedAssignee)?.fullName.replace(/\s*\([^)]*\)/g, '')}
-                </span>
-              )}
-            </div>
-
-            <div className="overflow-x-auto border border-gray-200 rounded-xl shadow-2xs">
-              <table className="w-full text-left text-xs text-gray-700">
-                <thead className="bg-gray-100 text-gray-600 font-extrabold uppercase text-[10px] border-b border-gray-200">
-                  <tr>
-                    <th className="py-2.5 px-3">รหัส / ชื่องาน</th>
-                    <th className="py-2.5 px-3">โครงการ</th>
-                    <th className="py-2.5 px-3">ผู้รับผิดชอบ</th>
-                    <th className="py-2.5 px-3 text-center">สถานะ</th>
-                    <th className="py-2.5 px-3 text-center">สถานะ SLA</th>
-                    <th className="py-2.5 px-3 text-right">กำหนดส่ง</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
-                  {displayTasks.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-gray-400 font-medium">
-                        ไม่พบรายการงานตามเงื่อนไขช่วงเวลาที่เลือก
-                      </td>
-                    </tr>
-                  ) : (
-                    displayTasks.map(t => {
-                      const ownerName = t.assignedToUserName?.replace(/\s*\([^)]*\)/g, '');
-                      return (
-                        <tr key={t.id} className="hover:bg-gray-50/50">
-                          <td className="py-2.5 px-3 font-bold text-gray-900 max-w-[220px] truncate">
-                            <span className="text-[10px] font-extrabold text-orange-600 block">{t.code}</span>
-                            {t.title}
-                          </td>
-                          <td className="py-2.5 px-3 text-gray-600 font-semibold max-w-[150px] truncate">
-                            {t.projectName}
-                          </td>
-                          <td className="py-2.5 px-3 font-bold text-gray-800">
-                            <div className="flex items-center space-x-1.5">
-                              <UserIcon className="w-3 h-3 text-gray-400" />
-                              <span>{ownerName}</span>
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-3 text-center">
-                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              t.status === 'approved'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : t.status === 'returned'
-                                ? 'bg-red-100 text-red-800'
-                                : t.status === 'pending_review'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-blue-100 text-blue-800'
-                            }`}>
-                              {t.status === 'approved'
-                                ? 'อนุมัติแล้ว'
-                                : t.status === 'returned'
-                                ? 'ตีกลับ'
-                                : t.status === 'pending_review'
-                                ? 'รอตรวจ'
-                                : 'รอส่งงาน'}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 text-center">
-                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                              t.slaStatus === 'on_time'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : t.slaStatus === 'delayed'
-                                ? 'bg-red-100 text-red-800'
-                                : 'bg-orange-100 text-orange-800'
-                            }`}>
-                              {t.slaStatus === 'on_time' ? 'ON TIME' : t.slaStatus === 'delayed' ? 'DELAYED' : 'NO UPDATE'}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono text-[11px] text-gray-600">
-                            {t.deadlineAt ? new Date(t.deadlineAt).toLocaleDateString('th-TH') : '-'}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Official Signatures for Printed Document */}
-          <div className="hidden print:grid grid-cols-2 gap-8 pt-8 border-t border-gray-200 mt-8">
-            <div className="text-center space-y-8">
-              <p className="text-xs font-bold text-gray-700">ผู้จัดทำรายงาน</p>
-              <div className="border-b border-gray-400 w-48 mx-auto"></div>
-              <p className="text-xs text-gray-500">(...................................................)</p>
-            </div>
-            <div className="text-center space-y-8">
-              <p className="text-xs font-bold text-gray-700">ผู้อนุมัติรายงาน (Super Admin)</p>
-              <div className="border-b border-gray-400 w-48 mx-auto"></div>
-              <p className="text-xs text-gray-500">(...................................................)</p>
-            </div>
-          </div>
-
-        </div>
-
-        {/* Modal Footer / Action Buttons (Hidden on Print) */}
-        <div className="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between shrink-0 print:hidden">
-          <p className="text-xs text-gray-500 font-medium">
-            * คลิก "พิมพ์ / บันทึก PDF" เพื่อดาวน์โหลดเอกสารรายงานในรูปแบบ PDF
-          </p>
-          <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
-            >
-              ยกเลิก
-            </button>
-            <button
-              type="button"
-              onClick={handlePrint}
-              className="px-5 py-2 text-white rounded-xl text-xs font-extrabold shadow-md transition-all hover:opacity-90 active:scale-95 cursor-pointer flex items-center space-x-2"
-              style={{ backgroundColor: '#ef6c00' }}
-            >
-              <Printer className="w-4 h-4" />
-              <span>พิมพ์ / บันทึก PDF ({reportPeriod === 'daily' ? 'รายวัน' : reportPeriod === 'weekly' ? 'รายสัปดาห์' : 'รายเดือน'})</span>
-            </button>
-          </div>
-        </div>
-
+        ))}
+      </div>
+      <div className="flex gap-4 pt-1.5">
+        {data.map(d => (
+          <span key={d.label} className="flex-1 min-w-0 text-[10px] leading-tight text-slate-600 text-center line-clamp-2">{d.label}</span>
+        ))}
       </div>
     </div>
   );
