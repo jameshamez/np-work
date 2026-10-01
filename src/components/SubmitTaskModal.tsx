@@ -24,8 +24,9 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
   const { currentUser, submitTaskForReview, users } = useApp();
 
   const [comment, setComment] = useState('');
-  const [pictureUrl, setPictureUrl] = useState('');
-  const [pictureName, setPictureName] = useState('');
+  // รูปที่ผู้ใช้อัปโหลดเข้ามาจริง (เลือกได้หลายรูป) และรูปที่กำลังแสดงตัวอย่าง
+  const [pictures, setPictures] = useState<{ name: string; url: string; size: number }[]>([]);
+  const [previewIndex, setPreviewIndex] = useState(0);
   const [documentName, setDocumentName] = useState('');
   const [documentSizeMB, setDocumentSizeMB] = useState<number>(0);
   const [googleDriveUrl, setGoogleDriveUrl] = useState(task?.googleDriveUrl || '');
@@ -42,20 +43,22 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
 
   if (!task) return null;
 
-  // Sample preset demo pictures for quick testing
-  const SAMPLE_PICTURES = [
-    { name: 'screen_mockup_7030.png', url: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80' },
-    { name: 'system_architecture_diagram.jpg', url: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80' },
-    { name: 'server_rack_installation.jpg', url: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80' },
-  ];
-
   const handlePictureSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setPictureName(file.name);
-      setPictureUrl(URL.createObjectURL(file));
-    }
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ''; // ให้เลือกไฟล์เดิมซ้ำได้หลังลบออก
+    if (files.length === 0) return;
+    const added = files.map(file => ({ name: file.name, url: URL.createObjectURL(file), size: file.size }));
+    setPreviewIndex(pictures.length);
+    setPictures([...pictures, ...added]);
   };
+
+  const removePicture = (index: number) => {
+    URL.revokeObjectURL(pictures[index].url);
+    setPictures(prev => prev.filter((_, i) => i !== index));
+    setPreviewIndex(prev => (prev >= index && prev > 0 ? prev - 1 : prev));
+  };
+
+  const previewPicture = pictures[previewIndex];
 
   const handleDocumentSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -91,21 +94,15 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
       task.googleDriveUrl = googleDriveUrl.trim();
     }
 
-    const attachments: { name: string; url: string; type: 'image' | 'file'; size: number }[] = [
-      {
-        name: pictureName || 'work_snapshot.png',
-        url: pictureUrl || SAMPLE_PICTURES[0].url,
-        type: 'image',
-        size: 1500000,
-      },
-    ];
+    const attachments: { name: string; url: string; type: 'image' | 'file'; size: number }[] =
+      pictures.map(p => ({ name: p.name, url: p.url, type: 'image', size: p.size }));
 
     if (documentName) {
       attachments.push({
         name: documentName,
         url: '#',
         type: 'file',
-        size: (documentSizeMB || 10) * 1024 * 1024,
+        size: documentSizeMB * 1024 * 1024,
       });
     }
 
@@ -236,46 +233,62 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
                 <input
                   type="file"
                   accept="image/*"
+                  multiple
                   onChange={handlePictureSelect}
                   className="hidden"
                 />
               </label>
 
-              {/* Sample Preset Picture Chooser */}
+              {/* รายการรูปที่อัปโหลดจริง */}
               <div className="space-y-1">
-                <span className="text-[10px] font-bold text-gray-500 block">หรือเลือกรูปตัวอย่าง:</span>
-                <div className="space-y-1">
-                  {SAMPLE_PICTURES.map((sample, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => {
-                        setPictureName(sample.name);
-                        setPictureUrl(sample.url);
-                      }}
-                      className={`w-full text-left px-2.5 py-1 rounded-xl border text-[11px] truncate transition-all cursor-pointer ${
-                        pictureName === sample.name
-                          ? 'border-orange-500 bg-orange-50 font-bold text-orange-900'
-                          : 'border-gray-200 hover:bg-gray-50 text-gray-600'
-                      }`}
-                    >
-                      🖼️ {sample.name}
-                    </button>
-                  ))}
-                </div>
+                <span className="text-[10px] font-bold text-gray-500 block">
+                  รูปที่อัปโหลดแล้ว ({pictures.length}):
+                </span>
+                {pictures.length === 0 ? (
+                  <p className="text-[11px] text-gray-400 px-2.5 py-1">ยังไม่ได้อัปโหลดรูปภาพ</p>
+                ) : (
+                  <div className="space-y-1 max-h-28 overflow-y-auto">
+                    {pictures.map((pic, i) => (
+                      <div
+                        key={pic.url}
+                        className={`flex items-center rounded-xl border text-[11px] transition-all ${
+                          previewIndex === i
+                            ? 'border-orange-500 bg-orange-50 font-bold text-orange-900'
+                            : 'border-gray-200 hover:bg-gray-50 text-gray-600'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setPreviewIndex(i)}
+                          className="flex-1 min-w-0 text-left px-2.5 py-1 truncate cursor-pointer"
+                        >
+                          🖼️ {pic.name}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removePicture(i)}
+                          title="ลบรูปนี้"
+                          className="p-1 mr-1 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Selected Image Preview */}
-            {pictureUrl && (
+            {previewPicture && (
               <div className="relative rounded-2xl overflow-hidden border border-gray-200 max-h-32 bg-black/5">
                 <img
-                  src={pictureUrl}
+                  src={previewPicture.url}
                   alt="Preview"
                   className="w-full h-32 object-cover"
                 />
                 <span className="absolute bottom-2 left-2 bg-black/70 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-xs">
-                  {pictureName}
+                  {previewPicture.name}
                 </span>
               </div>
             )}
@@ -295,7 +308,7 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
                 <div className="flex items-center space-x-2 truncate">
                   <FileText className="w-4 h-4 text-orange-600 shrink-0" />
                   <span className="font-semibold text-gray-700 truncate">
-                    {documentName ? `${documentName} (${documentSizeMB || 10} MB)` : 'เลือกไฟล์เอกสาร (.pdf, .zip, .docx)...'}
+                    {documentName ? `${documentName} (${documentSizeMB} MB)` : 'เลือกไฟล์เอกสาร (.pdf, .zip, .docx)...'}
                   </span>
                 </div>
                 <Upload className="w-4 h-4 text-gray-400 shrink-0" />
