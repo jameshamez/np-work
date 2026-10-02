@@ -49,6 +49,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 }) => {
   const { currentUser, updateChecklist, logs, approveTask, returnTask, addAnnotation, users, updateTaskFinancials, deleteTask, addTaskImages, deleteAttachment } = useApp();
 
+  const [blueprintId, setBlueprintId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'info' | 'ku_flow' | 'annotation' | 'financials' | 'attachments' | 'history'>(
     task?.category === 'ku_university' ? 'ku_flow' : 'info'
   );
@@ -117,9 +118,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   // ลบการ์ดถาวรได้เฉพาะ admin ขึ้นไป — ด่านจริงคือ policy tasks_delete_admin ที่ฐานข้อมูล
   const canDelete = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
-  // Find image attachment if any for blueprint annotation
-  const imageAttachment = task.attachments.find(a => a.fileType === 'image' && !a.fileUrl.startsWith('blob:'));
-  const sampleBlueprintUrl = imageAttachment?.fileUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?q=80&w=1200';
+  // รูปที่อัปโหลดจริงของการ์ด ใช้เป็นภาพสำหรับวงแก้แบบ (ข้ามลิงก์ blob: ที่ไฟล์หายไปแล้ว)
+  const blueprintImages = task.attachments.filter(
+    a => a.fileType === 'image' && a.fileUrl && a.fileUrl !== '#' && !a.fileUrl.startsWith('blob:')
+  );
+  const blueprint = blueprintImages.find(a => a.id === blueprintId) ?? blueprintImages[0];
 
   // ล็อกการแก้ไขเฉพาะตอนที่งานไม่ได้อยู่ในมือเจ้าของงาน
   //   pending_review = อยู่ระหว่างผู้ตรวจพิจารณา ห้ามแก้ใต้มือผู้ตรวจ
@@ -292,7 +295,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             </button>
           )}
 
-          {/* Two-Tier Financials tab */}
+          {/* Two-Tier Financials tab — เฉพาะการ์ดประเภทงานโครงการ */}
+          {task.category === 'ku_university' && (
           <button
             onClick={() => setActiveTab('financials')}
             className={`py-2.5 sm:py-3 px-2.5 sm:px-3.5 border-b-2 transition-all flex items-center space-x-1.5 whitespace-nowrap cursor-pointer ${
@@ -304,8 +308,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
             <span>เงินงวด 2 ระดับ</span>
           </button>
+          )}
 
-          {/* Drawing Review & Pin Point Annotation tab */}
+          {/* Drawing Review & Pin Point Annotation tab — เฉพาะการ์ดประเภทเขียนแบบ/ภาพ */}
+          {task.category === 'drawing_draft' && (
           <button
             onClick={() => setActiveTab('annotation')}
             className={`py-2.5 sm:py-3 px-2.5 sm:px-3.5 border-b-2 transition-all flex items-center space-x-1.5 whitespace-nowrap cursor-pointer ${
@@ -317,6 +323,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             <PenTool className="w-3.5 h-3.5 text-purple-600" />
             <span>แก้ไขวงแบบแปลน & เสียง ({task.annotations?.length || 0})</span>
           </button>
+          )}
 
           <button
             onClick={() => setActiveTab('attachments')}
@@ -779,7 +786,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           )}
 
           {/* Tab: Two-Tier Financials */}
-          {activeTab === 'financials' && (
+          {activeTab === 'financials' && task.category === 'ku_university' && (
             <div className="space-y-4">
               <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 space-y-4">
                 <div className="flex items-center justify-between border-b border-emerald-200 pb-2">
@@ -909,7 +916,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           )}
 
           {/* Tab Image Annotation / Blueprint Review */}
-          {activeTab === 'annotation' && (
+          {activeTab === 'annotation' && task.category === 'drawing_draft' && (
             <div className="space-y-3">
               <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-center justify-between">
                 <span>🎨 ปักหมุดพิกัดบนแบบแปลน/รูปภาพ พร้อมแนบข้อความหรือเสียงสั่งงาน (Voice Memo)</span>
@@ -953,11 +960,44 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 )}
               </div>
 
-              <ImageAnnotationViewer
-                imageUrl={sampleBlueprintUrl}
-                annotations={task.annotations || []}
-                onAddAnnotation={ann => addAnnotation(task.id, { ...ann, imageUrl: sampleBlueprintUrl })}
-              />
+              {blueprint ? (
+                <>
+                  {blueprintImages.length > 1 && (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {blueprintImages.map(img => (
+                        <button
+                          key={img.id}
+                          type="button"
+                          onClick={() => setBlueprintId(img.id)}
+                          title={img.fileName}
+                          className={`shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 cursor-pointer ${
+                            img.id === blueprint.id ? 'border-purple-600' : 'border-gray-200 hover:border-purple-300'
+                          }`}
+                        >
+                          <img src={img.fileUrl} alt={img.fileName} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <ImageAnnotationViewer
+                    key={blueprint.id}
+                    imageUrl={blueprint.fileUrl}
+                    annotations={(task.annotations || []).filter(a => a.imageUrl === blueprint.fileUrl)}
+                    onAddAnnotation={ann => addAnnotation(task.id, { ...ann, imageUrl: blueprint.fileUrl })}
+                  />
+                </>
+              ) : (
+                <div className="p-6 border border-dashed border-purple-200 rounded-2xl text-center text-xs text-gray-500 space-y-2">
+                  <p>ยังไม่มีรูปที่อัปโหลดสำหรับการ์ดนี้</p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('attachments')}
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold cursor-pointer"
+                  >
+                    ไปที่ประวัติไฟล์แนบเพื่อเพิ่มรูป
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
