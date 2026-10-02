@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ProjectCategory, KUProposalStatus, Attachment } from '../types';
 import { VoiceInputButton } from './VoiceInputButton';
 import { OCRScannerModal } from './OCRScannerModal';
 import { CreateFlowModal } from './CreateFlowModal';
 import { X, Plus, Trash2, Calendar, User, Layers, FileText, Sparkles, Save, GraduationCap, PenTool, Briefcase, AlertTriangle, Upload, Image as ImageIcon, Paperclip, Search, ChevronDown, Check, FolderPlus, Folder, ArrowUp, ArrowDown } from 'lucide-react';
+
+const STEPS = ['ข้อมูลงาน', 'ผู้รับผิดชอบ', 'ระยะเวลา', 'รายละเอียด'];
 
 interface CreateTaskModalProps {
   onClose: () => void;
@@ -44,6 +46,34 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
   const [attachedImage1, setAttachedImage1] = useState<{ file: File; previewUrl: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [uploadError, setUploadError] = useState('');
+
+  // ฟอร์มแบ่ง 4 ขั้น: ข้อมูลงาน → ผู้รับผิดชอบ → ระยะเวลา → รายละเอียด (ตรวจช่องบังคับก่อนไปขั้นถัดไป)
+  const [step, setStep] = useState(1);
+  const [stepErrors, setStepErrors] = useState<{ project?: boolean; title?: boolean; assignee?: boolean }>({});
+
+  const validateStep = (current: number): boolean => {
+    const errors: typeof stepErrors = {};
+    if (current === 1) {
+      if (!projectSearchQuery.trim()) errors.project = true;
+      if (!title.trim()) errors.title = true;
+    }
+    if (current === 2 && !assignedToUserId) errors.assignee = true;
+    setStepErrors(errors);
+    return !errors.project && !errors.title && !errors.assignee;
+  };
+
+  // กรอกช่องที่เคยแจ้งเตือนแล้ว ให้ข้อความเตือนหายทันที
+  useEffect(() => {
+    setStepErrors(prev => ({
+      project: prev.project && !projectSearchQuery.trim(),
+      title: prev.title && !title.trim(),
+      assignee: prev.assignee && !assignedToUserId,
+    }));
+  }, [projectSearchQuery, title, assignedToUserId]);
+
+  const goNext = () => {
+    if (validateStep(step)) setStep(s => Math.min(s + 1, STEPS.length));
+  };
 
   const clearAttachedImage1 = () => {
     if (attachedImage1) URL.revokeObjectURL(attachedImage1.previewUrl);
@@ -116,24 +146,24 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
         setTitle('ข้อเสนอโครงการวิจัยและพัฒนาระบบข้อมูล');
       }
       setChecklists([
-        '1. เขียนข้อเสนอ — ร่าง (จัดทำข้อเสนอฉบับแรก)',
-        '2. อาจารย์หนุ่ยเปิด (เปิดอ่านและให้ข้อเสนอแนะ)',
-        '3. พลอยปรับแก้ (แก้ข้อเสนอตามความคิดเห็น)',
-        '4. รออาจารย์หนุ่ยอนุมัติ (ตรวจฉบับพร้อมส่ง)',
-        '5. พลอยกรอกข้อมูลเข้าระบบ (บันทึกข้อมูลและเอกสาร)',
-        '6. รอหน่วยงานพิจารณา (ติดตามผลภายในกรอบเวลา)',
-        '7. ผ่าน — กลับมาแก้ข้อมูล (แก้ไขและส่งกลับหน่วยงาน)',
-        '8. ติดตามข้อมูลจากพี่ฟ้อง (พลอยส่งรายละเอียดและติดตาม)',
-        '9. อนุมัติ — เริ่มรันงวด (รับ TOR และเปิดแผนส่งมอบตามงวด)',
+        'เขียนข้อเสนอ — ร่าง (จัดทำข้อเสนอฉบับแรก)',
+        'อาจารย์หนุ่ยเปิด (เปิดอ่านและให้ข้อเสนอแนะ)',
+        'พลอยปรับแก้ (แก้ข้อเสนอตามความคิดเห็น)',
+        'รออาจารย์หนุ่ยอนุมัติ (ตรวจฉบับพร้อมส่ง)',
+        'พลอยกรอกข้อมูลเข้าระบบ (บันทึกข้อมูลและเอกสาร)',
+        'รอหน่วยงานพิจารณา (ติดตามผลภายในกรอบเวลา)',
+        'ผ่าน — กลับมาแก้ข้อมูล (แก้ไขและส่งกลับหน่วยงาน)',
+        'ติดตามข้อมูลจากพี่ฟ้อง (พลอยส่งรายละเอียดและติดตาม)',
+        'อนุมัติ — เริ่มรันงวด (รับ TOR และเปิดแผนส่งมอบตามงวด)',
       ]);
     } else if (cat === 'drawing_draft') {
       if (!title) {
         setTitle('งานเขียนแบบโครงสร้างและพิมพ์เขียว 3D');
       }
       setChecklists([
-        '1. ตรวจสอบรายละเอียดและข้อกำหนดงานเขียนแบบ',
-        '2. จัดทำแบบร่างและภาพที่ 1 ฉบับสมบูรณ์',
-        '3. ส่งแบบให้ทีมวิศวกรและผู้ตรวจทานคอมเมนต์',
+        'ตรวจสอบรายละเอียดและข้อกำหนดงานเขียนแบบ',
+        'จัดทำแบบร่างและภาพที่ 1 ฉบับสมบูรณ์',
+        'ส่งแบบให้ทีมวิศวกรและผู้ตรวจทานคอมเมนต์',
       ]);
     }
   };
@@ -203,6 +233,15 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // กด Enter ในขั้นก่อนหน้าให้เลื่อนไปขั้นถัดไป ไม่ใช่บันทึกการ์ด
+    if (step < STEPS.length) {
+      goNext();
+      return;
+    }
+    if (!validateStep(1)) {
+      setStep(1);
+      return;
+    }
 
     if (!startDate || !dueDate || !planDays || planDays < 1) {
       alert('กรุณาระบุกำหนดเวลาปฏิบัติงานให้ครบถ้วน');
@@ -258,9 +297,40 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
           </button>
         </div>
 
+        {/* Step bar */}
+        <div className="px-5 sm:px-8 pt-4 pb-3 border-b border-gray-100 shrink-0">
+          <div className="relative flex items-start justify-between">
+            <div className="absolute left-4 right-4 top-3.5 h-1 bg-gray-200 rounded-full" />
+            <div
+              className="absolute left-4 top-3.5 h-1 bg-green-500 rounded-full transition-all"
+              style={{ width: `calc((100% - 2rem) * ${(step - 1) / (STEPS.length - 1)})` }}
+            />
+            {STEPS.map((label, i) => {
+              const n = i + 1;
+              const done = n < step;
+              const current = n === step;
+              return (
+                <div key={label} className="relative z-10 flex flex-col items-center gap-1 w-16">
+                  <span
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black border-2 transition-colors ${
+                      done || current ? 'bg-green-500 border-green-500 text-white' : 'bg-gray-100 border-gray-200 text-gray-500'
+                    } ${current ? 'ring-4 ring-green-100' : ''}`}
+                  >
+                    {done ? <Check className="w-4 h-4" /> : n}
+                  </span>
+                  <span className={`text-[10px] sm:text-[11px] font-bold whitespace-nowrap ${current ? 'text-green-600' : 'text-gray-500'}`}>{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
-          
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
+          {step === 1 && (
+          <>
+
           {/* Category Selector */}
           <div className="space-y-1">
             <label className="block text-xs font-bold text-gray-800">
@@ -284,7 +354,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
                 onClick={() => handleSelectCategory('ku_university')}
                 className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center justify-center space-x-1 ${
                   category === 'ku_university'
-                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm ring-2 ring-emerald-400'
+                    ? 'bg-orange-500 text-white border-orange-600 shadow-xs'
                     : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
                 }`}
               >
@@ -317,8 +387,8 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
             </div>
           </div>
 
-          {/* Project & Assignee */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 z-30">
+          {/* Project */}
+          <div className="z-30">
             {/* Searchable & Creatable Project Combobox */}
             <div className="relative space-y-1">
               <label className="block text-xs font-bold text-gray-800 flex items-center justify-between">
@@ -336,7 +406,9 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
                       setIsProjectDropdownOpen(true);
                     }}
                     onFocus={() => setIsProjectDropdownOpen(true)}
-                    className="w-full pl-8 pr-14 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white font-medium"
+                    className={`w-full pl-8 pr-14 py-2 text-xs border rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white font-medium ${
+                      stepErrors.project ? 'border-red-500' : 'border-gray-200'
+                    }`}
                   />
                   {projectSearchQuery && (
                     <button
@@ -413,25 +485,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
               </div>
             </div>
 
-            {/* Assignee */}
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-gray-800">
-                ผู้รับผิดชอบหลัก <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={assignedToUserId}
-                onChange={e => setAssignedToUserId(e.target.value)}
-                className="w-full px-3.5 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white font-medium"
-              >
-                {users
-                  .filter(u => u.status === 'approved')
-                  .map(u => (
-                    <option key={u.id} value={u.id}>
-                      {u.fullName?.replace(/\s*\([^)]*\)/g, '')}
-                    </option>
-                  ))}
-              </select>
-            </div>
+            {stepErrors.project && <p className="text-[11px] font-bold text-red-600">กรุณาเลือกโครงการ</p>}
           </div>
 
           {/* Title */}
@@ -471,9 +525,11 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
               placeholder="ระบุชื่องาน เช่น เครื่องบ่ม13..."
               value={title}
               onChange={e => setTitle(e.target.value)}
-              className="w-full px-3.5 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold"
-              required
+              className={`w-full px-3.5 py-2 text-xs border rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold ${
+                stepErrors.title ? 'border-red-500' : 'border-gray-200'
+              }`}
             />
+            {stepErrors.title && <p className="text-[11px] font-bold text-red-600">กรุณากรอกชื่องาน</p>}
           </div>
 
           {/* Image 1 Attachment Box (ONLY for Drawing Draft cards) */}
@@ -563,6 +619,39 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
             </div>
           )}
 
+          </>
+          )}
+
+          {step === 2 && (
+          <>
+          {/* Assignee */}
+            <div className="space-y-1">
+              <label className="block text-xs font-bold text-gray-800">
+                ผู้รับผิดชอบหลัก <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={assignedToUserId}
+                onChange={e => setAssignedToUserId(e.target.value)}
+                className={`w-full px-3.5 py-2 text-xs border rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white font-medium ${
+                  stepErrors.assignee ? 'border-red-500' : 'border-gray-200'
+                }`}
+              >
+                <option value="">-- เลือกผู้รับผิดชอบหลัก --</option>
+                {users
+                  .filter(u => u.status === 'approved')
+                  .map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.fullName?.replace(/\s*\([^)]*\)/g, '')}
+                    </option>
+                  ))}
+              </select>
+              {stepErrors.assignee ? (
+                <p className="text-[11px] font-bold text-red-600">กรุณาระบุผู้รับผิดชอบหลัก</p>
+              ) : (
+                <p className="text-[10px] text-gray-400">* ระบบเลือกตัวคุณให้โดยอัตโนมัติ คุณสามารถเปลี่ยนผู้รับผิดชอบได้</p>
+              )}
+            </div>
+
           {/* Target Assignment (ส่งต่อให้ใคร (ถ้ามี)) */}
           <div className="space-y-1">
             <label className="block text-xs font-bold text-gray-800">
@@ -584,6 +673,11 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
             </select>
           </div>
 
+          </>
+          )}
+
+          {step === 3 && (
+          <>
           {/* Planned Duration Days & Date Range Calculation (บังคับกรอก) */}
           <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-3.5 space-y-2.5">
             <div className="flex items-center justify-between">
@@ -640,6 +734,11 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
             </div>
           </div>
 
+          </>
+          )}
+
+          {step === 4 && (
+          <>
           {/* Description */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
@@ -776,8 +875,12 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
             </div>
           </div>
 
-          {/* Submit buttons */}
-          <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
+          </>
+          )}
+          </div>
+
+          {/* Footer: ร่างได้ทุกขั้น • ย้อนกลับ / ถัดไป / บันทึกที่ขั้นสุดท้าย */}
+          <div className="px-4 sm:px-6 py-3 border-t border-gray-100 flex items-center justify-between gap-2 shrink-0 bg-white">
             <button
               type="button"
               onClick={handleSaveDraft}
@@ -789,21 +892,41 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
             </button>
 
             <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
-                style={{ backgroundColor: '#ef6c00' }}
-              >
-                {isSaving ? 'กำลังอัปโหลดไฟล์...' : 'บันทึกและสร้างการ์ดงาน'}
-              </button>
+              {step > 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStepErrors({});
+                    setStep(s => s - 1);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+                >
+                  ย้อนกลับ
+                </button>
+              )}
+              {/* key แยกกัน: ไม่ให้ React ใช้ปุ่ม "ถัดไป" ตัวเดิมกลายเป็นปุ่ม submit ระหว่างคลิก
+                  (ไม่งั้นคลิกถัดไปที่ขั้น 3 จะบันทึกการ์ดทันที) */}
+              {step < STEPS.length ? (
+                <button
+                  key="next"
+                  type="button"
+                  onClick={goNext}
+                  className="px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all hover:opacity-90"
+                  style={{ backgroundColor: '#ef6c00' }}
+                >
+                  ถัดไป
+                </button>
+              ) : (
+                <button
+                  key="submit"
+                  type="submit"
+                  disabled={isSaving}
+                  className="px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
+                  style={{ backgroundColor: '#ef6c00' }}
+                >
+                  {isSaving ? 'กำลังอัปโหลดไฟล์...' : 'บันทึกและสร้างการ์ดงาน'}
+                </button>
+              )}
             </div>
           </div>
 
