@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Printer, Calendar, Filter, Building, Info } from 'lucide-react';
+import { X, Printer, Calendar, Filter, Building, Info, Download } from 'lucide-react';
 import { Task, TaskStatus, User, Project } from '../types';
 import {
   STATUS_LABEL,
@@ -21,6 +21,7 @@ import {
 } from '../lib/report';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { downloadReportPdf } from '../lib/reportPdf';
 
 interface ExportReportModalProps {
   isOpen: boolean;
@@ -60,6 +61,8 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
   // ถ้าเว้นว่างใช้ข้อเสนอที่ระบบสรุปให้
   const [notes, setNotes] = useState('');
   const [showGuide, setShowGuide] = useState(false);
+  const [isSavingPdf, setIsSavingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState('');
   // เลือกรอบรายงานที่จะออก — ต้องเหลืออย่างน้อยหนึ่งรอบเสมอ
   const [includeWeek, setIncludeWeek] = useState(true);
   const [includeMonth, setIncludeMonth] = useState(true);
@@ -180,6 +183,21 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
     </>
   );
 
+  const handleSavePdf = async () => {
+    const sheets = Array.from(document.querySelectorAll<HTMLElement>('.np-report-pages .np-report-sheet'));
+    const rounds = [includeWeek && 'รายสัปดาห์', includeMonth && 'รายเดือน'].filter(Boolean).join('-');
+    setIsSavingPdf(true);
+    setPdfError('');
+    try {
+      await downloadReportPdf(sheets, `NP-Taskwork-รายงาน${rounds}-${toInputDate(new Date())}.pdf`);
+    } catch (err) {
+      console.error(err);
+      setPdfError('สร้างไฟล์ PDF ไม่สำเร็จ ลองใหม่อีกครั้ง หรือใช้ปุ่มพิมพ์แล้วเลือกบันทึกเป็น PDF');
+    } finally {
+      setIsSavingPdf(false);
+    }
+  };
+
   return createPortal(
     <div className="np-report-overlay fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden print:block">
       {/* แผงควบคุมด้านขวา (ไม่พิมพ์) — จอแคบย้ายขึ้นไปอยู่บนสุด */}
@@ -267,15 +285,30 @@ export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, on
 
           <NotesInput label="ปัญหาและแนวทางแก้ไข (ขึ้นท้ายรายงาน)" value={notes} onChange={setNotes} />
 
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="w-full px-4 py-2.5 text-white rounded-xl text-xs font-extrabold shadow-md hover:opacity-90 inline-flex items-center justify-center gap-1.5 cursor-pointer"
-            style={{ backgroundColor: BRAND }}
-          >
-            <Printer className="w-4 h-4" />
-            <span>พิมพ์ / บันทึก PDF</span>
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={handleSavePdf}
+              disabled={isSavingPdf}
+              className="px-3 py-2.5 text-white rounded-xl text-xs font-extrabold shadow-md hover:opacity-90 inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+              style={{ backgroundColor: BRAND }}
+            >
+              <Download className="w-4 h-4" />
+              <span>{isSavingPdf ? 'กำลังสร้าง PDF...' : 'บันทึก PDF'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="px-3 py-2.5 rounded-xl text-xs font-extrabold border-2 inline-flex items-center justify-center gap-1.5 cursor-pointer hover:bg-orange-50"
+              style={{ borderColor: BRAND, color: BRAND }}
+            >
+              <Printer className="w-4 h-4" />
+              <span>พิมพ์</span>
+            </button>
+          </div>
+          {pdfError && (
+            <p className="text-[11px] font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">{pdfError}</p>
+          )}
         </div>
       </aside>
 
