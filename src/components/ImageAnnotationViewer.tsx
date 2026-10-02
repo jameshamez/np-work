@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { ImageAnnotation } from '../types';
 import { Circle, MessageSquare, Plus, Trash2, Send } from 'lucide-react';
 
@@ -19,6 +19,16 @@ export const ImageAnnotationViewer: React.FC<ImageAnnotationViewerProps> = ({
   const [newComment, setNewComment] = useState('');
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const commentFormRef = useRef<HTMLDivElement>(null);
+  const commentInputRef = useRef<HTMLInputElement>(null);
+
+  // ช่องพิมพ์ความเห็นอยู่ใต้ภาพ มักตกขอบจอ — วงจุดแล้วเลื่อนลงไปให้เห็นและพิมพ์ได้ทันที
+  // (จุดจะถูกนับในแท็บก็ต่อเมื่อกดบันทึกวงความเห็นแล้วเท่านั้น)
+  useEffect(() => {
+    if (!clickPos) return;
+    commentFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    commentInputRef.current?.focus({ preventScroll: true });
+  }, [clickPos]);
 
   const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (readOnly || !onAddAnnotation) return;
@@ -108,6 +118,9 @@ export const ImageAnnotationViewer: React.FC<ImageAnnotationViewerProps> = ({
               style={{ left: `${clickPos.x}%`, top: `${clickPos.y}%` }}
             >
               <Plus className="w-5 h-5 text-yellow-300" />
+              <span className="absolute top-full mt-1 whitespace-nowrap rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-bold text-yellow-300">
+                ยังไม่บันทึก
+              </span>
             </div>
           )}
         </div>
@@ -121,7 +134,7 @@ export const ImageAnnotationViewer: React.FC<ImageAnnotationViewerProps> = ({
 
       {/* New Annotation Input Form */}
       {clickPos && !readOnly && (
-        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl space-y-2 animate-in fade-in duration-150">
+        <div ref={commentFormRef} className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl space-y-2 animate-in fade-in duration-150">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-amber-900 flex items-center space-x-1">
               <Circle className="w-3.5 h-3.5 text-amber-600" />
@@ -136,6 +149,7 @@ export const ImageAnnotationViewer: React.FC<ImageAnnotationViewerProps> = ({
           </div>
           <div className="flex gap-2">
             <input
+              ref={commentInputRef}
               type="text"
               placeholder="พิมพ์ความเห็น เช่น ขยับระยะตำแหน่งมอเตอร์เกียร์ขึ้น 15mm..."
               value={newComment}
