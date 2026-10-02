@@ -18,6 +18,27 @@
   }
 }
 
+/* รายงานผู้บริหาร (ExportReportModal) — ฟอนต์ TH Sarabun (Sarabun บน Google Fonts)
+   ตามต้นแบบ: หัวเอกสาร 20 / หัวข้อและหัวตาราง 16 ตัวหนา / ข้อความ 16 (pt ของ TH Sarabun)
+   Sarabun ตัวอักษรใหญ่กว่า TH Sarabun ราว 1.33 เท่า จึงใช้ 15pt / 12pt ให้ขนาดที่เห็นเท่ากัน */
+.np-report-sheet {
+  font-family: 'Sarabun', 'TH Sarabun New', sans-serif;
+}
+.np-report-sheet h2 {
+  font-size: 15pt;
+  font-weight: 700;
+}
+.np-report-sheet h3,
+.np-report-sheet th {
+  font-size: 12pt;
+  font-weight: 700;
+}
+.np-report-sheet p,
+.np-report-sheet li,
+.np-report-sheet td {
+  font-size: 12pt;
+}
+
 /* รายงานผู้บริหาร (ExportReportModal) — พิมพ์เฉพาะหน้ารายงาน A4 ทีละหน้า */
 @media print {
   @page {

@@ -5,7 +5,7 @@ import { KUMilestonesView } from './KUMilestonesView';
 import { ImageAnnotationViewer } from './ImageAnnotationViewer';
 import { VoiceInputButton } from './VoiceInputButton';
 import { DeleteTaskConfirmModal } from './DeleteTaskConfirmModal';
-import { timeliness } from '../lib/report';
+import { isLate as isTaskLate } from '../lib/report';
 import {
   X,
   Upload,
@@ -60,7 +60,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   // Delay reason free text state (Page 19)
   const [delayReason, setDelayReason] = useState(task?.delayReason || '');
   // แสดงช่องหมายเหตุเฉพาะงานที่ล่าช้า — งานส่งตรงเวลาหรือการ์ดเปิดใหม่ไม่ต้องกรอก
-  const isLate = !!task && (task.slaStatus === 'delayed' || ['late', 'overdue'].includes(timeliness(task, new Date())));
+  const isLate = !!task && isTaskLate(task, new Date());
 
   // Google Drive URL state
   const [driveUrl, setDriveUrl] = useState(task?.googleDriveUrl || '');

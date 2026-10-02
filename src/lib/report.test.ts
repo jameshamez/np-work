@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { Project, Task } from '../types';
+import { Project, Task, TaskLog } from '../types';
 import {
   buildPersonRows,
   buildProjectRows,
   countByStatus,
   isInScope,
+  isLate,
   monthRange,
   needsFollowUp,
+  returnReason,
   timeliness,
   weekRange,
 } from './report';
@@ -107,7 +109,7 @@ describe('buildProjectRows', () => {
   it('lists every project, busiest first, with success rate and risk count', () => {
     const rows = buildProjectRows(
       [
-        task({ id: '1', projectId: 'p2', status: 'approved' }),
+        task({ id: '1', projectId: 'p2', status: 'approved', completedAt: '2026-09-05T03:00:00Z' }),
         task({ id: '2', projectId: 'p2', status: 'returned' }),
         task({ id: '3', projectId: 'p1' }),
       ],
@@ -115,9 +117,53 @@ describe('buildProjectRows', () => {
     );
     expect(rows.map(r => [r.name, r.total, r.done, r.successPct, r.risk, r.pendingReview, r.pendingSubmission])).toEqual([
       ['B', 2, 1, 50, 1, 0, 0],
-      ['A', 1, 0, 0, 0, 0, 1],
+      ['A', 1, 0, 0, 1, 0, 1],
       ['C', 0, 0, 0, 0, 0, 0],
     ]);
+  });
+
+  it('counts work closed after the deadline as risk', () => {
+    const [row] = buildProjectRows(
+      [task({ projectId: 'p1', status: 'approved', completedAt: '2026-09-12T03:00:00Z' })],
+      projects
+    );
+    expect(row.risk).toBe(1);
+  });
+
+  it('counts card creators plus everyone who changed a status, once each', () => {
+    const logs = [
+      { taskId: '1', actionByUserId: 'u1' },
+      { taskId: '1', actionByUserId: 'u2' },
+      { taskId: '2', actionByUserId: 'u2' },
+      { taskId: 'other', actionByUserId: 'u9' },
+    ] as TaskLog[];
+    const [row] = buildProjectRows(
+      [task({ id: '1', createdById: 'u1' }), task({ id: '2', createdById: 'u3' })],
+      projects,
+      logs
+    );
+    expect(row.participants).toBe(3);
+  });
+});
+
+describe('isLate / returnReason', () => {
+  const now = new Date('2026-09-20T03:00:00Z');
+  it('flags SLA delays, late closes and overdue open work only', () => {
+    expect(isLate(task({ slaStatus: 'delayed', deadlineAt: '2026-12-01T03:00:00Z' }), now)).toBe(true);
+    expect(isLate(task({ status: 'approved', completedAt: '2026-09-12T03:00:00Z' }), now)).toBe(true);
+    expect(isLate(task({}), now)).toBe(true);
+    expect(isLate(task({ status: 'approved', completedAt: '2026-09-10T03:00:00Z' }), now)).toBe(false);
+    expect(isLate(task({ deadlineAt: '2026-12-01T03:00:00Z' }), now)).toBe(false);
+  });
+
+  it('takes the latest return comment without the system prefix', () => {
+    const logs = [
+      { taskId: 't1', newStatus: 'returned', comment: '[ตีกลับแก้ไข] เก่า', createdAt: '2026-09-01T00:00:00Z' },
+      { taskId: 't1', newStatus: 'returned', comment: '[ตีกลับแก้ไข] ขาดรูปแนบ', createdAt: '2026-09-03T00:00:00Z' },
+      { taskId: 't1', newStatus: 'pending_review', comment: 'ส่งงาน', createdAt: '2026-09-04T00:00:00Z' },
+    ] as TaskLog[];
+    expect(returnReason(task({ id: 't1' }), logs)).toBe('ขาดรูปแนบ');
+    expect(returnReason(task({ id: 't2' }), logs)).toBe('');
   });
 });
 

@@ -9,7 +9,7 @@
  *   Lead time          = วันตั้งแต่เริ่มงานจนอนุมัติปิดงาน (lead_time_days จากฐานข้อมูล)
  *   งานในขอบเขตช่วงเวลา = เปิดก่อนสิ้นช่วง และยังไม่ปิดก่อนเริ่มช่วง
  */
-import { Project, Task, TaskStatus } from '../types';
+import { Project, Task, TaskLog, TaskStatus } from '../types';
 
 export interface DateRange {
   start: Date;
@@ -60,6 +60,21 @@ export function timeliness(task: Task, now: Date): Timeliness {
   return thaiDay(now) > due ? 'overdue' : 'open';
 }
 
+/** งานล่าช้า: SLA ล่าช้า, ปิดหลังวันกำหนดส่ง หรือยังไม่ปิดทั้งที่เลยกำหนดแล้ว */
+export function isLate(task: Task, now: Date): boolean {
+  if (task.slaStatus === 'delayed') return true;
+  const when = timeliness(task, now);
+  return when === 'late' || when === 'overdue';
+}
+
+/** เหตุผลตีกลับครั้งล่าสุดจาก Audit Log (ตัดป้าย [ตีกลับแก้ไข] ที่ระบบเติมไว้หน้าข้อความ) */
+export function returnReason(task: Task, logs: TaskLog[]): string {
+  const last = logs
+    .filter(l => l.taskId === task.id && l.newStatus === 'returned')
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+  return last ? last.comment.replace(/^\[ตีกลับแก้ไข\]\s*/, '').trim() : '';
+}
+
 export type StatusCounts = Record<TaskStatus, number>;
 
 export function countByStatus(tasks: Task[]): StatusCounts {
@@ -78,17 +93,26 @@ export interface ProjectRow {
   successPct: number;
   pendingReview: number;
   pendingSubmission: number;
+  participants: number;
   risk: number;
 }
 
 const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
 
-/** ทุกโครงการ เรียงจากงานมากไปน้อย (เท่ากันคงลำดับเดิมของโครงการ) */
-export function buildProjectRows(tasks: Task[], projects: Project[]): ProjectRow[] {
+/**
+ * ทุกโครงการ เรียงจากงานมากไปน้อย (เท่ากันคงลำดับเดิมของโครงการ)
+ *   ผู้ดำเนินงาน = ผู้สร้างการ์ด + ผู้ที่เคยปรับสถานะการ์ด (นับคนไม่ซ้ำ)
+ *   งานเสี่ยง    = งานที่ยังไม่เสร็จ + งานที่ปิดแล้วแต่ส่งล่าช้า
+ */
+export function buildProjectRows(tasks: Task[], projects: Project[], logs: TaskLog[] = [], now = new Date()): ProjectRow[] {
   return projects
     .map(p => {
       const own = tasks.filter(t => t.projectId === p.id);
       const done = own.filter(t => t.status === 'approved').length;
+      const ownIds = new Set(own.map(t => t.id));
+      const people = new Set<string>();
+      own.forEach(t => t.createdById && people.add(t.createdById));
+      logs.forEach(l => ownIds.has(l.taskId) && l.actionByUserId && people.add(l.actionByUserId));
       return {
         projectId: p.id,
         name: p.name,
@@ -97,7 +121,8 @@ export function buildProjectRows(tasks: Task[], projects: Project[]): ProjectRow
         successPct: pct(done, own.length),
         pendingReview: own.filter(t => t.status === 'pending_review').length,
         pendingSubmission: own.filter(t => t.status === 'pending_submission').length,
-        risk: own.filter(needsFollowUp).length,
+        participants: people.size,
+        risk: own.filter(t => t.status !== 'approved' || timeliness(t, now) === 'late').length,
       };
     })
     .sort((a, b) => b.total - a.total);
