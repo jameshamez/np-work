@@ -5,6 +5,7 @@ import { KUMilestonesView } from './KUMilestonesView';
 import { ImageAnnotationViewer } from './ImageAnnotationViewer';
 import { VoiceInputButton } from './VoiceInputButton';
 import { DeleteTaskConfirmModal } from './DeleteTaskConfirmModal';
+import { timeliness } from '../lib/report';
 import {
   X,
   Upload,
@@ -57,10 +58,12 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [descText, setDescText] = useState(task?.description || '');
 
   // Delay reason free text state (Page 19)
-  const [delayReason, setDelayReason] = useState(task?.delayReason || 'อยู่ระหว่างรอเอกสารอนุมัติจากหน่วยงานภายนอก');
+  const [delayReason, setDelayReason] = useState(task?.delayReason || '');
+  // แสดงช่องหมายเหตุเฉพาะงานที่ล่าช้า — งานส่งตรงเวลาหรือการ์ดเปิดใหม่ไม่ต้องกรอก
+  const isLate = !!task && (task.slaStatus === 'delayed' || ['late', 'overdue'].includes(timeliness(task, new Date())));
 
   // Google Drive URL state
-  const [driveUrl, setDriveUrl] = useState(task?.googleDriveUrl || 'https://drive.google.com/drive/folders/1A2b3C4d5E6f7G8h9I0j-np_taskwork');
+  const [driveUrl, setDriveUrl] = useState(task?.googleDriveUrl || '');
 
   // Voice Memo state
   const [voiceMemoUrl, setVoiceMemoUrl] = useState(task?.voiceMemoUrl || '');
@@ -435,8 +438,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                       setDriveUrl(e.target.value);
                       task.googleDriveUrl = e.target.value;
                     }}
-                    placeholder="https://drive.google.com/drive/folders/..."
-                    className="flex-1 p-2 text-xs border border-blue-200 rounded-xl bg-white text-blue-950 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="เช่น https://drive.google.com/drive/folders/xxxxxxxx"
+                    className="flex-1 p-2 text-xs border border-blue-200 rounded-xl bg-white text-blue-950 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   {driveUrl && (
                     <a
@@ -453,6 +456,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               </div>
 
               {/* Delay Reason Free Text Notes (Page 19 Requirement) */}
+              {isLate && (
               <div className="bg-red-50/60 border border-red-200 rounded-2xl p-3.5 space-y-2">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold text-red-950 flex items-center space-x-1.5">
@@ -470,10 +474,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     setDelayReason(e.target.value);
                     task.delayReason = e.target.value;
                   }}
-                  placeholder="พิมพ์สาเหตุความล่าช้า หรือติดปัญหาแผนกใด..."
-                  className="w-full p-2.5 text-xs border border-red-200 rounded-xl bg-white text-red-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  placeholder="เช่น อยู่ระหว่างรอเอกสารอนุมัติจากหน่วยงานภายนอก"
+                  className="w-full p-2.5 text-xs border border-red-200 rounded-xl bg-white text-red-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
               </div>
+              )}
 
               {/* Checklists (Editable & Deletable per Page 8 Requirement) */}
               {(() => {

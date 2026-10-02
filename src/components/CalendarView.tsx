@@ -73,7 +73,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenDetailModal })
 
   const handleCardClick = (task: Task) => {
     setSelectedTask(task);
-    setDriveUrl(task.googleDriveUrl || 'https://drive.google.com/drive/folders/1A2b3C4d5E6f7G8h9I0j-np_taskwork');
+    setDriveUrl(task.googleDriveUrl || '');
   };
 
   const formatThaiDate = (dateStr?: string) => {
@@ -346,12 +346,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenDetailModal })
                     type="text"
                     value={driveUrl}
                     onChange={e => setDriveUrl(e.target.value)}
-                    className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    placeholder="เช่น https://drive.google.com/drive/folders/xxxxxxxx"
+                    className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-mono placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   />
                   <button
                     type="button"
                     onClick={() => window.open(driveUrl, '_blank')}
-                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition-colors shrink-0 cursor-pointer"
+                    disabled={!driveUrl}
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition-colors shrink-0 cursor-pointer"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                     <span>เปิด Drive</span>
