@@ -35,7 +35,7 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
   // SRS Table #2: Reviewer Dropdown Selection
   const [selectedReviewerId, setSelectedReviewerId] = useState<string>(() => {
     if (task?.reviewerUserId) return task.reviewerUserId;
-    const defaultReviewer = users.find(u => u.role === 'admin' || u.role === 'super_admin');
+    const defaultReviewer = users.find(u => u.status === 'approved' && (u.role === 'admin' || u.role === 'super_admin'));
     return defaultReviewer?.id || '';
   });
 
@@ -185,7 +185,7 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
               className="w-full px-3 py-2 text-xs font-bold border border-amber-300 rounded-xl bg-white text-gray-800 focus:ring-2 focus:ring-amber-500"
             >
               {users
-                .filter(u => u.role === 'admin' || u.role === 'super_admin')
+                .filter(u => u.status === 'approved' && (u.role === 'admin' || u.role === 'super_admin'))
                 .map(u => (
                   <option key={u.id} value={u.id}>
                     ส่งตรวจที่: {u.fullName?.replace(/\s*\([^)]*\)/g, '')}

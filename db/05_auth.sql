@@ -158,7 +158,7 @@ returns table (
   role                  user_role,
   status                user_status,
   avatar_url            text,
-  no_update_alert_hours integer,
+  no_update_alert_hours numeric,
   created_at            timestamptz
 )
 language sql stable security definer set search_path = public as $$

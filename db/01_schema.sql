@@ -87,7 +87,7 @@ create table users (
   role                   user_role   not null default 'user',
   status                 user_status not null default 'pending',
   avatar_url             text,
-  no_update_alert_hours  integer not null default 4,
+  no_update_alert_hours  numeric(8,4) not null default 4,  -- ทศนิยมได้ เช่น 0.25 = 15 นาที (ดู 16_alert_minutes.sql)
   line_notify_enabled    boolean not null default true,
   line_notify_token      text,
   created_at             timestamptz not null default now(),
@@ -95,7 +95,7 @@ create table users (
 
   constraint users_username_len   check (char_length(username) between 3 and 64),
   constraint users_email_format   check (email ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'),
-  constraint users_alert_hours_rng check (no_update_alert_hours between 1 and 168)
+  constraint users_alert_hours_rng check (no_update_alert_hours between 0.25 and 168)
 );
 
 comment on table  users is 'ผู้ใช้งานระบบ — สมัครแล้วต้องรอ admin อนุมัติ (status = pending)';

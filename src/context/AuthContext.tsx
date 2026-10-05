@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { AuthProfile, isSupabaseConfigured, supabase } from '../lib/supabase';
 
@@ -13,6 +13,8 @@ interface AuthContextType {
   loading: boolean;
   session: Session | null;
   profile: AuthProfile | null;
+  /** โหลดโปรไฟล์ไม่สำเร็จ (เช่น เน็ตหลุด) — แยกจากกรณีไม่มีโปรไฟล์จริง */
+  profileError: string | null;
 
   signIn: (email: string, password: string) => Promise<AuthResult>;
   signUp: (email: string, password: string, username: string, fullName: string) => Promise<AuthResult>;
@@ -40,24 +42,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<AuthProfile | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  // โหลดซ้อนกันได้ (event มาติด ๆ กัน) — ให้ผลของรอบล่าสุดชนะเสมอ
+  const loadSeq = useRef(0);
+  // ผู้ใช้ที่โหลดโปรไฟล์ไว้แล้ว — TOKEN_REFRESHED ของคนเดิมไม่ต้องโหลดใหม่
+  const loadedUserId = useRef<string | null>(null);
 
   /** ดึงโปรไฟล์ในระบบงานของ session ปัจจุบัน (ใช้ได้แม้สถานะยัง pending) */
   const loadProfile = useCallback(async (activeSession: Session | null) => {
+    const seq = ++loadSeq.current;
     if (!supabase || !activeSession) {
+      loadedUserId.current = null;
       setProfile(null);
+      setProfileError(null);
       return;
     }
 
-    const { data, error } = await supabase.rpc('app_my_profile');
-    if (error) {
-      console.error('โหลดโปรไฟล์ไม่สำเร็จ:', error.message);
-      setProfile(null);
-      return;
+    // ลองซ้ำเผื่อเน็ตสะดุดชั่วคราว — ไม่งั้นผู้ใช้ที่ไม่ได้ผิดอะไรจะเจอหน้า "ไม่พบโปรไฟล์"
+    let lastError = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 500 * attempt));
+      const { data, error } = await supabase.rpc('app_my_profile');
+      if (seq !== loadSeq.current) return;
+      if (!error) {
+        // app_my_profile คืนค่าเป็นตาราง จึงได้มาเป็น array
+        const row = Array.isArray(data) ? data[0] : data;
+        loadedUserId.current = activeSession.user.id;
+        setProfile((row as AuthProfile) ?? null);
+        setProfileError(null);
+        return;
+      }
+      lastError = error.message;
     }
 
-    // app_my_profile คืนค่าเป็นตาราง จึงได้มาเป็น array
-    const row = Array.isArray(data) ? data[0] : data;
-    setProfile((row as AuthProfile) ?? null);
+    console.error('โหลดโปรไฟล์ไม่สำเร็จ:', lastError);
+    setProfile(null);
+    setProfileError(lastError);
   }, []);
 
   useEffect(() => {
@@ -68,18 +88,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     let active = true;
 
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (!active) return;
-      setSession(data.session);
-      await loadProfile(data.session);
-      if (active) setLoading(false);
-    });
-
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    // ไม่ต้องเรียก getSession() แยก — onAuthStateChange ส่ง INITIAL_SESSION ให้ทันทีที่ subscribe
+    // ถ้าโหลดสองทางพร้อมกัน ทางที่เสร็จก่อนจะปิดหน้าโหลดทั้งที่โปรไฟล์ยังไม่มา
+    // ห้าม await การเรียก supabase ใน callback นี้ตรง ๆ — callback ทำงานขณะถือ lock ของ auth
+    // แล้ว rpc ต้องรอ lock เดียวกัน จะค้าง (deadlock) จนผู้ใช้เห็นหน้า "ไม่พบโปรไฟล์"
+    // จึงเลื่อนไปทำหลัง callback คืนค่าแล้ว (ตามคำแนะนำของ supabase-js)
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       if (!active) return;
       setSession(newSession);
-      await loadProfile(newSession);
-      if (active) setLoading(false);
+
+      const userId = newSession?.user.id ?? null;
+      if (userId && userId === loadedUserId.current) return;
+
+      // แสดงหน้าโหลดระหว่างดึงโปรไฟล์ ไม่ให้หน้า "ไม่พบโปรไฟล์" โผล่แวบขึ้นมาก่อน
+      if (newSession) setLoading(true);
+      setTimeout(() => {
+        const seq = loadSeq.current + 1;
+        void loadProfile(newSession).then(() => {
+          // รอบที่ถูกรอบใหม่แซงไปแล้วห้ามปิดหน้าโหลด
+          if (active && seq === loadSeq.current) setLoading(false);
+        });
+      }, 0);
     });
 
     return () => {
@@ -128,8 +157,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = useCallback(async () => {
     if (supabase) await supabase.auth.signOut();
+    loadedUserId.current = null;
     setSession(null);
     setProfile(null);
+    setProfileError(null);
   }, []);
 
   const sendPasswordReset = useCallback(async (email: string): Promise<AuthResult> => {
@@ -153,6 +184,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         session,
         profile,
+        profileError,
         signIn,
         signUp,
         signOut,

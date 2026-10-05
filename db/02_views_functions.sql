@@ -557,7 +557,7 @@ where t.status <> 'approved'
   and t.is_draft = false
   and extract(epoch from (now() - t.last_updated_at)) / 3600.0 >= u.no_update_alert_hours
   and (t.last_inactivity_alert_at is null
-       or t.last_inactivity_alert_at < now() - make_interval(hours => u.no_update_alert_hours));
+       or t.last_inactivity_alert_at < now() - u.no_update_alert_hours * interval '1 hour');
 
 -- -----------------------------------------------------------------------------
 -- v_audit_log : ประวัติทั้งหมด พร้อมธง "ทำแทน" สำหรับหน้า AuditLogView

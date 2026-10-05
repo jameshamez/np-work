@@ -4,6 +4,7 @@ import {
   ShieldCheck,
   UserCheck,
   UserX,
+  Trash2,
   Clock,
   CheckCircle2,
   AlertCircle,
@@ -15,11 +16,84 @@ import {
 } from 'lucide-react';
 import { LineOutboxRow } from '../lib/lineApi';
 
+// ช่วงที่ฐานข้อมูลยอมรับ (users_alert_hours_rng ใน db/16_alert_minutes.sql)
+const MIN_ALERT_HOURS = 0.25;
+const MAX_ALERT_HOURS = 168;
+const PRESET_HOURS = [0.25, 0.5, 0.75, 1, 2, 4, 6, 8, 12, 24];
+
+const sameMinutes = (a: number, b: number) => Math.round(a * 60) === Math.round(b * 60);
+// ต่ำกว่า 1 ชม. หรือไม่ลงตัวเป็นชั่วโมง/ครึ่งชั่วโมง -> แสดงเป็นนาทีจะอ่านง่ายกว่า
+const prefersMinutes = (hours: number) => hours < 1 || Math.round(hours * 60) % 30 !== 0;
+
+/**
+ * ช่องพิมพ์เวลาแจ้งเตือน — เก็บค่าที่กำลังพิมพ์ไว้ในช่องก่อน แล้วบันทึกตอนกด Enter หรือออกจากช่อง
+ * (เดิมบันทึกทุกครั้งที่กดแป้น ช่องเลยเด้งกลับเป็นค่าเก่าระหว่างพิมพ์ และพิมพ์ทับได้ตัวเลขเพี้ยน)
+ * เปลี่ยนหน่วยแค่เปลี่ยนการแสดงผล ระยะเวลาเท่าเดิม
+ */
+const AlertDurationInput: React.FC<{ hours: number; onCommit: (hours: number) => void }> = ({ hours, onCommit }) => {
+  const [unit, setUnit] = useState<'min' | 'hr'>(() => (prefersMinutes(hours) ? 'min' : 'hr'));
+  const toDisplay = useCallback(
+    (h: number, u: 'min' | 'hr') => String(u === 'min' ? Math.round(h * 60) : Math.round(h * 100) / 100),
+    []
+  );
+  const [draft, setDraft] = useState(() => toDisplay(hours, unit));
+
+  // ค่าจากฐานข้อมูลเปลี่ยน (บันทึกสำเร็จ / เลือกจาก preset) -> แสดงตามค่าใหม่
+  useEffect(() => {
+    const u = prefersMinutes(hours) ? 'min' : 'hr';
+    setUnit(u);
+    setDraft(toDisplay(hours, u));
+  }, [hours, toDisplay]);
+
+  const commit = () => {
+    const val = parseFloat(draft);
+    if (isNaN(val) || val <= 0) {
+      setDraft(toDisplay(hours, unit));
+      return;
+    }
+    const next = Math.min(MAX_ALERT_HOURS, Math.max(MIN_ALERT_HOURS, unit === 'min' ? val / 60 : val));
+    setDraft(toDisplay(next, unit));
+    if (!sameMinutes(next, hours)) onCommit(next);
+  };
+
+  return (
+    <div className="flex items-center bg-orange-50/80 border border-orange-200 rounded-xl px-2 py-1 shadow-2xs">
+      <input
+        type="number"
+        min={unit === 'min' ? 15 : 0.25}
+        max={unit === 'min' ? MAX_ALERT_HOURS * 60 : MAX_ALERT_HOURS}
+        step={unit === 'min' ? 1 : 0.5}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+        className="w-11 text-center font-black text-xs text-orange-950 bg-transparent focus:outline-none"
+        title={`พิมพ์ตัวเลขแล้วกด Enter (ได้ตั้งแต่ 15 นาที ถึง ${MAX_ALERT_HOURS} ชม.)`}
+      />
+      <select
+        value={unit}
+        onChange={e => {
+          const u = e.target.value as 'min' | 'hr';
+          setUnit(u);
+          setDraft(toDisplay(hours, u));
+        }}
+        className="text-[11px] font-black text-orange-900 bg-transparent border-0 focus:outline-none cursor-pointer pr-1"
+      >
+        <option value="min">นาที</option>
+        <option value="hr">ชม.</option>
+      </select>
+    </div>
+  );
+};
+
 export const AdminApprovalView: React.FC = () => {
   const {
     users,
     approveUser,
     rejectUser,
+    removeUser,
     currentUser,
     tasks,
     updateUserNotificationSettings,
@@ -65,6 +139,23 @@ export const AdminApprovalView: React.FC = () => {
 
   const pendingUsers = users.filter(u => u.status === 'pending');
   const approvedUsers = users.filter(u => u.status === 'approved');
+
+  const handleRemoveUser = (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    const openTasks = tasks.filter(t => t.assignedToUserId === userId && t.status !== 'approved' && !t.isDraft).length;
+    const warning = openTasks > 0
+      ? `\n\n⚠️ ผู้ใช้นี้ยังเป็นเจ้าของงานที่ยังไม่ปิด ${openTasks} งาน ควรโอนงานให้ผู้อื่นก่อนหรือหลังลบ`
+      : '';
+    if (
+      confirm(
+        `ลบผู้ใช้งาน "${user.fullName}" ออกจากระบบใช่หรือไม่?\n\nผู้ใช้นี้จะเข้าสู่ระบบไม่ได้อีก แต่ประวัติงานเดิมยังอยู่ครบ` +
+          ` หากกลับมาทำงานใหม่ ให้สมัครด้วยอีเมลเดิมแล้วอนุมัติอีกครั้ง${warning}`
+      )
+    ) {
+      removeUser(userId);
+    }
+  };
 
   const handleManualCheckTrigger = () => {
     const count = checkNoUpdateTasksAndNotify();
@@ -216,6 +307,7 @@ export const AdminApprovalView: React.FC = () => {
                     <th className="py-2.5 px-3">อีเมล</th>
                     <th className="py-2.5 px-3">ระดับสิทธิ์</th>
                     <th className="py-2.5 px-3">สถานะ</th>
+                    <th className="py-2.5 px-3 text-right">ดำเนินการ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 font-medium">
@@ -229,6 +321,18 @@ export const AdminApprovalView: React.FC = () => {
                         <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
                           อนุมัติแล้ว
                         </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        {u.id !== currentUser?.id && (
+                          <button
+                            onClick={() => handleRemoveUser(u.id)}
+                            className="px-3 py-1.5 text-[11px] font-bold text-red-700 bg-red-100 hover:bg-red-200 rounded-xl transition-colors cursor-pointer"
+                            title="ลบผู้ใช้งานที่ลาออก (เก็บประวัติงานเดิมไว้)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 inline mr-1" />
+                            ลบผู้ใช้
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -338,7 +442,7 @@ export const AdminApprovalView: React.FC = () => {
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-extrabold text-gray-900 uppercase tracking-wide flex items-center space-x-2">
                 <Smartphone className="w-4 h-4 text-emerald-600" />
-                <span>กำหนดการแจ้งเตือนการ์ดงานรายบุคคล ({users.length} รายชื่อ)</span>
+                <span>กำหนดการแจ้งเตือนการ์ดงานรายบุคคล ({approvedUsers.length} รายชื่อ)</span>
               </h3>
             </div>
 
@@ -353,14 +457,9 @@ export const AdminApprovalView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 font-medium">
-                  {users.map(u => {
+                  {approvedUsers.map(u => {
                     const alertHours = u.noUpdateAlertHours ?? 4;
-
-                    // Determine display mode (minutes vs hours)
-                    const displayInMinutes = alertHours < 1 || (Math.round(alertHours * 60) % 60 !== 0 && alertHours <= 3);
-                    const numericValue = displayInMinutes 
-                      ? Math.round(alertHours * 60) 
-                      : Number((Math.round(alertHours * 100) / 100).toFixed(1));
+                    const displayInMinutes = prefersMinutes(alertHours);
 
                     // Calculate pending cards for this user
                     const now = new Date();
@@ -400,44 +499,14 @@ export const AdminApprovalView: React.FC = () => {
                           <div className="flex items-center space-x-1.5">
                             
                             {/* Number Input + Unit Toggle */}
-                            <div className="flex items-center bg-orange-50/80 border border-orange-200 rounded-xl px-2 py-1 shadow-2xs">
-                              <input
-                                type="number"
-                                min={1}
-                                max={displayInMinutes ? 43200 : 720}
-                                step={displayInMinutes ? 1 : 0.5}
-                                value={numericValue}
-                                onChange={e => {
-                                  const val = parseFloat(e.target.value);
-                                  if (!isNaN(val) && val > 0) {
-                                    const finalHours = displayInMinutes ? val / 60 : val;
-                                    updateUserNotificationSettings(u.id, {
-                                      noUpdateAlertHours: finalHours
-                                    });
-                                  }
-                                }}
-                                className="w-11 text-center font-black text-xs text-orange-950 bg-transparent focus:outline-none"
-                                title="พิมพ์ตัวเลขเวลาตามที่ต้องการ"
-                              />
-                              <select
-                                value={displayInMinutes ? 'min' : 'hr'}
-                                onChange={e => {
-                                  const isMin = e.target.value === 'min';
-                                  const newHours = isMin ? (numericValue / 60) : numericValue;
-                                  updateUserNotificationSettings(u.id, {
-                                    noUpdateAlertHours: newHours
-                                  });
-                                }}
-                                className="text-[11px] font-black text-orange-900 bg-transparent border-0 focus:outline-none cursor-pointer pr-1"
-                              >
-                                <option value="min">นาที</option>
-                                <option value="hr">ชม.</option>
-                              </select>
-                            </div>
+                            <AlertDurationInput
+                              hours={alertHours}
+                              onCommit={hours => updateUserNotificationSettings(u.id, { noUpdateAlertHours: hours })}
+                            />
 
                             {/* Preset Dropdown */}
                             <select
-                              value={[0.25, 0.5, 0.75, 1, 2, 4, 6, 8, 12, 24].includes(alertHours) ? alertHours : 'custom'}
+                              value={PRESET_HOURS.find(h => sameMinutes(h, alertHours)) ?? 'custom'}
                               onChange={e => {
                                 if (e.target.value !== 'custom') {
                                   updateUserNotificationSettings(u.id, {
@@ -457,9 +526,9 @@ export const AdminApprovalView: React.FC = () => {
                               <option value={8}>8 ชม.</option>
                               <option value={12}>12 ชม.</option>
                               <option value={24}>24 ชม.</option>
-                              {!([0.25, 0.5, 0.75, 1, 2, 4, 6, 8, 12, 24].includes(alertHours)) && (
+                              {!PRESET_HOURS.some(h => sameMinutes(h, alertHours)) && (
                                 <option value="custom">
-                                  กำหนดเอง ({displayInMinutes ? `${Math.round(alertHours * 60)} นาที` : `${alertHours} ชม.`})
+                                  กำหนดเอง ({displayInMinutes ? `${Math.round(alertHours * 60)} นาที` : `${Math.round(alertHours * 100) / 100} ชม.`})
                                 </option>
                               )}
                             </select>

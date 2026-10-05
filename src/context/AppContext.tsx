@@ -59,6 +59,7 @@ export interface AppContextType {
   setCurrentUserId: (id: string) => void;
   approveUser: (userId: string) => void;
   rejectUser: (userId: string) => void;
+  removeUser: (userId: string) => void;
   createTask: (data: {
     title: string;
     description: string;
@@ -603,6 +604,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const removeUser = (userId: string) => {
+    void run(async () => {
+      await api.removeUser(db, userId);
+      setUsers(await api.fetchUsers(db));
+    });
+  };
+
   const updateUserNotificationSettings = (
     userId: string,
     settings: { noUpdateAlertHours?: number }
@@ -823,6 +831,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentUserId: setViewAsUserId,
         approveUser,
         rejectUser,
+        removeUser,
         createTask,
         duplicateTask,
         saveTaskDraft,

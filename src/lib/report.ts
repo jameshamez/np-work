@@ -67,12 +67,42 @@ export function isLate(task: Task, now: Date): boolean {
   return when === 'late' || when === 'overdue';
 }
 
+/** งานล่าช้าที่ยังต้องเตือน — งานที่อนุมัติปิดแล้วไม่นับเป็นความเสี่ยง แม้จะส่งเกินกำหนด */
+export function isLateAlert(task: Task, now: Date): boolean {
+  return task.status !== 'approved' && isLate(task, now);
+}
+
 /** เหตุผลตีกลับครั้งล่าสุดจาก Audit Log (ตัดป้าย [ตีกลับแก้ไข] ที่ระบบเติมไว้หน้าข้อความ) */
 export function returnReason(task: Task, logs: TaskLog[]): string {
   const last = logs
     .filter(l => l.taskId === task.id && l.newStatus === 'returned')
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
   return last ? last.comment.replace(/^\[ตีกลับแก้ไข\]\s*/, '').trim() : '';
+}
+
+/**
+ * คนที่ลงมือทำการ์ดแทน นอกเหนือจากผู้ที่ถูกมอบหมาย
+ *   นับจาก: ผู้กดส่งตรวจงาน (log ที่สถานะใหม่เป็น pending_review) และผู้อัปโหลดไฟล์แนบ
+ *   ไม่นับ: เจ้าของงาน และผู้ที่ถูกส่งงานต่อ (assignedTarget) — สองคนนี้ทำงานในการ์ดอยู่แล้วตามหน้าที่
+ *   ไม่นับการอนุมัติ/ตีกลับของผู้ตรวจ เพราะเป็นการตรวจ ไม่ใช่การทำงาน
+ * เรียงตามครั้งแรกที่เข้ามาทำ
+ */
+export function taskContributors(task: Task, logs: TaskLog[]): { userId: string; name: string }[] {
+  const skip = new Set([task.assignedToUserId, task.assignedTargetUserId].filter(Boolean));
+  const events = [
+    ...logs
+      .filter(l => l.taskId === task.id && l.newStatus === 'pending_review')
+      .map(l => ({ userId: l.actionByUserId, name: l.actionByUserName, at: l.createdAt })),
+    ...task.attachments
+      .filter(a => a.uploadedById)
+      .map(a => ({ userId: a.uploadedById as string, name: a.uploadedBy, at: a.uploadedAt })),
+  ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
+  const seen = new Map<string, string>();
+  events.forEach(e => {
+    if (e.userId && !skip.has(e.userId) && !seen.has(e.userId)) seen.set(e.userId, cleanName(e.name));
+  });
+  return [...seen.entries()].map(([userId, name]) => ({ userId, name }));
 }
 
 export type StatusCounts = Record<TaskStatus, number>;
@@ -102,7 +132,7 @@ const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / who
 /**
  * ทุกโครงการ เรียงจากงานมากไปน้อย (เท่ากันคงลำดับเดิมของโครงการ)
  *   ผู้ดำเนินงาน = ผู้สร้างการ์ด + ผู้ที่เคยปรับสถานะการ์ด (นับคนไม่ซ้ำ)
- *   งานเสี่ยง    = งานที่ยังไม่เสร็จ + งานที่ปิดแล้วแต่ส่งล่าช้า
+ *   งานเสี่ยง    = งานที่ยังไม่เสร็จ (งานที่อนุมัติแล้วไม่นับ แม้จะส่งล่าช้า)
  */
 export function buildProjectRows(tasks: Task[], projects: Project[], logs: TaskLog[] = [], now = new Date()): ProjectRow[] {
   return projects
@@ -122,7 +152,7 @@ export function buildProjectRows(tasks: Task[], projects: Project[], logs: TaskL
         pendingReview: own.filter(t => t.status === 'pending_review').length,
         pendingSubmission: own.filter(t => t.status === 'pending_submission').length,
         participants: people.size,
-        risk: own.filter(t => t.status !== 'approved' || timeliness(t, now) === 'late').length,
+        risk: own.filter(t => t.status !== 'approved').length,
       };
     })
     .sort((a, b) => b.total - a.total);

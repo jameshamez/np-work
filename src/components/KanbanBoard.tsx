@@ -98,7 +98,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           <div className="text-center sm:shrink-0 min-w-0">
             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-tight">ล่าช้า (SLA)</p>
             <p className="text-2xl font-black text-[#bf360c]">
-              {tasks.filter(t => t.slaStatus === 'delayed' || t.slaStatus === 'no_update').length}
+              {tasks.filter(t => t.status !== 'approved' && (t.slaStatus === 'delayed' || t.slaStatus === 'no_update')).length}
             </p>
           </div>
         </div>

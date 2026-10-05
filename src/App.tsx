@@ -139,7 +139,7 @@ function AppContent() {
  *   ผ่านทั้งหมด        -> เข้าใช้งานระบบ
  */
 function AuthGate() {
-  const { loading, session, profile } = useAuth();
+  const { loading, session, profile, profileError } = useAuth();
 
   if (loading) {
     return (
@@ -151,7 +151,7 @@ function AuthGate() {
   }
 
   if (!session) return <AuthScreen />;
-  if (!profile) return <AccountStatusScreen variant="missing" />;
+  if (!profile) return <AccountStatusScreen variant={profileError ? 'error' : 'missing'} />;
   if (profile.status === 'pending') return <AccountStatusScreen variant="pending" />;
   if (profile.status === 'rejected') return <AccountStatusScreen variant="rejected" />;
 

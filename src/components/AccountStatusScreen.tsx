@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Clock, LogOut, RefreshCw, ShieldAlert, ShieldX } from 'lucide-react';
+import { Clock, LogOut, RefreshCw, ShieldAlert, ShieldX, WifiOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-type Variant = 'pending' | 'rejected' | 'missing';
+type Variant = 'pending' | 'rejected' | 'missing' | 'error';
 
 const CONTENT: Record<Variant, { icon: React.ElementType; color: string; title: string; body: string }> = {
   pending: {
@@ -22,6 +22,12 @@ const CONTENT: Record<Variant, { icon: React.ElementType; color: string; title: 
     color: '#dc2626',
     title: 'ไม่พบโปรไฟล์ผู้ใช้ในระบบงาน',
     body: 'บัญชีเข้าสู่ระบบใช้งานได้ แต่ยังไม่มีโปรไฟล์ผูกอยู่ในฐานข้อมูล กรุณาแจ้งผู้ดูแลระบบให้ตรวจสอบว่าได้รัน db/05_auth.sql เรียบร้อยแล้วหรือยัง',
+  },
+  error: {
+    icon: WifiOff,
+    color: '#ef6c00',
+    title: 'โหลดข้อมูลผู้ใช้ไม่สำเร็จ',
+    body: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ชั่วคราว กรุณาตรวจสอบอินเทอร์เน็ตแล้วกดตรวจสอบสถานะอีกครั้ง',
   },
 };
 

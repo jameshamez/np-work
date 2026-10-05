@@ -54,7 +54,8 @@ export const mapUser = (r: Row): User => ({
   status: r.status,
   avatarUrl: opt(r.avatar_url),
   createdAt: r.created_at,
-  noUpdateAlertHours: opt(r.no_update_alert_hours),
+  // numeric ในฐานข้อมูลอาจมาเป็น string ได้ แปลงเป็นตัวเลขไว้ก่อนเสมอ
+  noUpdateAlertHours: r.no_update_alert_hours == null ? undefined : Number(r.no_update_alert_hours),
 });
 
 export const mapProject = (r: Row): Project => ({
@@ -831,6 +832,12 @@ export async function setUserApproval(
 ): Promise<void> {
   const { error } = await db.rpc('app_approve_user', { p_user_id: userId, p_approve: approve });
   if (error) throw new Error(`บันทึกผลการอนุมัติไม่สำเร็จ: ${error.message}`);
+}
+
+/** ลบผู้ใช้ที่ลาออก — ตัดสิทธิ์ล็อกอินแต่เก็บโปรไฟล์ไว้ให้งานเก่าอ้างถึง (ดู db/15_remove_user.sql) */
+export async function removeUser(db: SupabaseClient, userId: string): Promise<void> {
+  const { error } = await db.rpc('app_remove_user', { p_user_id: userId });
+  if (error) throw new Error(`ลบผู้ใช้งานไม่สำเร็จ: ${error.message}`);
 }
 
 // =============================================================================

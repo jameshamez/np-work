@@ -5,9 +5,10 @@ import { KUMilestonesView } from './KUMilestonesView';
 import { ImageAnnotationViewer } from './ImageAnnotationViewer';
 import { VoiceInputButton } from './VoiceInputButton';
 import { DeleteTaskConfirmModal } from './DeleteTaskConfirmModal';
-import { isLate as isTaskLate } from '../lib/report';
+import { isLate as isTaskLate, taskContributors } from '../lib/report';
 import {
   X,
+  UsersRound,
   Upload,
   Clock,
   CheckSquare,
@@ -114,6 +115,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     .filter(l => l.taskId === task.id)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const canReview = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+  // คนที่เข้ามาทำการ์ดแทน นอกจากเจ้าของงานและผู้ที่ถูกส่งงานต่อ
+  const contributors = taskContributors(task, logs);
 
   // ลบการ์ดถาวรได้เฉพาะ admin ขึ้นไป — ด่านจริงคือ policy tasks_delete_admin ที่ฐานข้อมูล
   const canDelete = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
@@ -1197,12 +1200,24 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
         {/* Modal Footer / Review Controls */}
         <div className="p-4 border-t border-gray-100 bg-gray-50 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded-xl transition-colors shrink-0"
-          >
-            ปิดหน้าต่าง
-          </button>
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded-xl transition-colors shrink-0"
+            >
+              ปิดหน้าต่าง
+            </button>
+            {contributors.length > 0 && (
+              <div
+                className="flex items-center space-x-1.5 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-xl text-[11px] min-w-0"
+                title="ผู้ที่เข้ามาส่งงานหรือแนบไฟล์ในการ์ดนี้ นอกเหนือจากผู้รับผิดชอบหลักและผู้ที่ถูกส่งงานต่อ"
+              >
+                <UsersRound className="w-3.5 h-3.5 text-sky-700 shrink-0" />
+                <span className="font-bold text-sky-900 shrink-0">ผู้ร่วมทำงานแทน:</span>
+                <span className="font-bold text-gray-800 truncate">{contributors.map(c => c.name).join(', ')}</span>
+              </div>
+            )}
+          </div>
 
           {/* Page 10 Requirement: Select Approver */}
           <div className="flex flex-wrap items-center space-x-2 gap-y-2">

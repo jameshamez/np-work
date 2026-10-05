@@ -6,9 +6,11 @@ import {
   countByStatus,
   isInScope,
   isLate,
+  isLateAlert,
   monthRange,
   needsFollowUp,
   returnReason,
+  taskContributors,
   timeliness,
   weekRange,
 } from './report';
@@ -122,12 +124,12 @@ describe('buildProjectRows', () => {
     ]);
   });
 
-  it('counts work closed after the deadline as risk', () => {
+  it('does not count approved work as risk even when it closed after the deadline', () => {
     const [row] = buildProjectRows(
-      [task({ projectId: 'p1', status: 'approved', completedAt: '2026-09-12T03:00:00Z' })],
+      [task({ projectId: 'p1', status: 'approved', slaStatus: 'delayed', completedAt: '2026-09-12T03:00:00Z' })],
       projects
     );
-    expect(row.risk).toBe(1);
+    expect(row.risk).toBe(0);
   });
 
   it('counts card creators plus everyone who changed a status, once each', () => {
@@ -154,6 +156,14 @@ describe('isLate / returnReason', () => {
     expect(isLate(task({}), now)).toBe(true);
     expect(isLate(task({ status: 'approved', completedAt: '2026-09-10T03:00:00Z' }), now)).toBe(false);
     expect(isLate(task({ deadlineAt: '2026-12-01T03:00:00Z' }), now)).toBe(false);
+  });
+
+  it('does not alert on approved work that closed late', () => {
+    const lateApproved = task({ status: 'approved', slaStatus: 'delayed', completedAt: '2026-09-12T03:00:00Z' });
+    expect(isLate(lateApproved, now)).toBe(true);
+    expect(isLateAlert(lateApproved, now)).toBe(false);
+    expect(isLateAlert(task({ slaStatus: 'delayed', deadlineAt: '2026-12-01T03:00:00Z' }), now)).toBe(true);
+    expect(isLateAlert(task({}), now)).toBe(true);
   });
 
   it('takes the latest return comment without the system prefix', () => {
@@ -183,5 +193,38 @@ describe('buildPersonRows', () => {
       { userId: 'u1', name: 'ออม', total: 3, done: 2, inProgress: 1, followUp: 1, avgLeadDays: 9, early: 1, onTime: 0, late: 1, overdue: 1 },
       { userId: 'u2', name: 'พลอย', total: 1, done: 0, inProgress: 1, followUp: 0, avgLeadDays: null, early: 0, onTime: 0, late: 0, overdue: 0 },
     ]);
+  });
+});
+
+describe('taskContributors', () => {
+  const log = (actor: string, name: string, newStatus: TaskLog['newStatus'], createdAt: string) =>
+    ({ id: actor + createdAt, taskId: 't1', actionByUserId: actor, actionByUserName: name,
+       onBehalfOfUserId: 'u1', onBehalfOfUserName: 'ออม', newStatus, comment: '', createdAt }) as TaskLog;
+
+  it('lists people who submitted or uploaded, except the owner and the hand-off target', () => {
+    const t = task({
+      assignedTargetUserId: 'u2',
+      attachments: [
+        { id: 'a1', taskId: 't1', fileName: 'x.png', fileUrl: 'u', fileType: 'image', fileSize: 1,
+          uploadedBy: 'พี่หมู (Admin)', uploadedById: 'u4', uploadedAt: '2026-09-02T03:00:00Z' },
+        { id: 'a2', taskId: 't1', fileName: 'y.png', fileUrl: 'u', fileType: 'image', fileSize: 1,
+          uploadedBy: 'พลอย', uploadedById: 'u2', uploadedAt: '2026-09-02T04:00:00Z' },
+      ],
+    });
+    const logs = [
+      log('u3', 'พี่หนึ่ง', 'pending_review', '2026-09-03T03:00:00Z'),
+      log('u1', 'ออม', 'pending_review', '2026-09-03T04:00:00Z'),
+      log('u2', 'พลอย', 'pending_review', '2026-09-03T05:00:00Z'),
+      log('u5', 'ผู้ตรวจ', 'returned', '2026-09-03T06:00:00Z'),
+      log('u3', 'พี่หนึ่ง', 'pending_review', '2026-09-04T03:00:00Z'),
+    ];
+    expect(taskContributors(t, logs)).toEqual([
+      { userId: 'u4', name: 'พี่หมู' },
+      { userId: 'u3', name: 'พี่หนึ่ง' },
+    ]);
+  });
+
+  it('is empty when only the assigned people worked on the card', () => {
+    expect(taskContributors(task({}), [log('u1', 'ออม', 'pending_review', '2026-09-03T03:00:00Z')])).toEqual([]);
   });
 });

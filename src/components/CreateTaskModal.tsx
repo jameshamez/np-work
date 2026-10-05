@@ -19,10 +19,9 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [selectedFlowId, setSelectedFlowId] = useState<string>('');
-  const [projectId, setProjectId] = useState(projects[0]?.id || '');
-  const [projectSearchQuery, setProjectSearchQuery] = useState(
-    projects.find(p => p.id === (projects[0]?.id || ''))?.name || projects[0]?.name || ''
-  );
+  // ไม่เลือกโครงการไว้ล่วงหน้า ให้ผู้ใช้เลือกเอง (แสดงเป็น placeholder สีเทาแทน)
+  const [projectId, setProjectId] = useState('');
+  const [projectSearchQuery, setProjectSearchQuery] = useState('');
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
 
   const [assignedToUserId, setAssignedToUserId] = useState(currentUser?.id || users[0]?.id || '');
@@ -399,14 +398,14 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({ onClose }) => 
                   <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="ค้นหาหรือพิมพ์เพิ่มโครงการใหม่..."
+                    placeholder="ค้นหาหรือพิมพ์ชื่อโครงการ เช่น ไทยเอเชียไรซ์ โปรดักส์..."
                     value={projectSearchQuery}
                     onChange={e => {
                       setProjectSearchQuery(e.target.value);
                       setIsProjectDropdownOpen(true);
                     }}
                     onFocus={() => setIsProjectDropdownOpen(true)}
-                    className={`w-full pl-8 pr-14 py-2 text-xs border rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white font-medium ${
+                    className={`w-full pl-8 pr-14 py-2 text-xs border rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white font-medium placeholder:text-gray-400 placeholder:font-normal ${
                       stepErrors.project ? 'border-red-500' : 'border-gray-200'
                     }`}
                   />

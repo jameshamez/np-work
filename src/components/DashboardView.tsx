@@ -20,7 +20,8 @@ export const DashboardView: React.FC = () => {
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter(t => t.status === 'approved').length;
   const pendingReviewTasks = tasks.filter(t => t.status === 'pending_review').length;
-  const delayedTasks = tasks.filter(t => t.slaStatus === 'delayed' || t.slaStatus === 'no_update').length;
+  // งานที่อนุมัติแล้วไม่นับเป็นงานล่าช้าที่ต้องเตือน แม้จะส่งเกินกำหนด
+  const delayedTasks = tasks.filter(t => t.status !== 'approved' && (t.slaStatus === 'delayed' || t.slaStatus === 'no_update')).length;
 
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
@@ -49,7 +50,7 @@ export const DashboardView: React.FC = () => {
     const userTasks = tasks.filter(t => t.assignedToUserId === user.id);
     const userCompleted = userTasks.filter(t => t.status === 'approved').length;
     const userPending = userTasks.filter(t => t.status === 'pending_submission' || t.status === 'pending_review' || t.status === 'returned').length;
-    const userDelayed = userTasks.filter(t => t.slaStatus === 'delayed' || t.slaStatus === 'no_update').length;
+    const userDelayed = userTasks.filter(t => t.status !== 'approved' && (t.slaStatus === 'delayed' || t.slaStatus === 'no_update')).length;
 
     const userCompletedList = userTasks.filter(t => t.status === 'approved' && t.leadTimeDays);
     const userAvgLead =
