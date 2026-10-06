@@ -116,7 +116,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const canReview = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
   // คนที่เข้ามาทำการ์ดแทน นอกจากเจ้าของงานและผู้ที่ถูกส่งงานต่อ
-  const contributors = taskContributors(task, logs);
+  const contributors = taskContributors(task, logs, users);
 
   // ลบการ์ดถาวรได้เฉพาะ admin ขึ้นไป — ด่านจริงคือ policy tasks_delete_admin ที่ฐานข้อมูล
   const canDelete = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';

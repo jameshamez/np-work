@@ -73,6 +73,8 @@ const mapChecklist = (r: Row): ChecklistItem => ({
   completed: r.completed,
   resultStatus: opt(r.result_status),
   resultReason: opt(r.result_reason),
+  completedById: opt(r.completed_by_user_id),
+  completedAt: opt(r.completed_at),
 });
 
 const mapMilestone = (r: Row): ProjectMilestone => ({

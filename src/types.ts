@@ -79,6 +79,8 @@ export interface ChecklistItem {
   completed: boolean;
   resultStatus?: 'success' | 'fail';
   resultReason?: string;
+  completedById?: string; // ผู้ติ๊กล่าสุด — ฐานข้อมูลเติมให้เอง (db/17_checklist_completed_by.sql)
+  completedAt?: string;
 }
 
 export interface Attachment {

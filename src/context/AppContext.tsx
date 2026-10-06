@@ -492,7 +492,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               checklists: t.checklists.map(c =>
                 c.id !== checklistId
                   ? c
-                  : { ...c, completed, resultStatus: completed ? resultStatus ?? 'success' : undefined, resultReason }
+                  : {
+                      ...c,
+                      completed,
+                      resultStatus: completed ? resultStatus ?? 'success' : undefined,
+                      resultReason,
+                      // ให้ "ผู้ร่วมทำงานแทน" ขึ้นทันทีที่ติ๊ก — ค่าจริงฐานข้อมูลเติมให้ตอนบันทึก
+                      completedById: completed ? profile?.id ?? c.completedById : undefined,
+                      completedAt: completed ? new Date().toISOString() : undefined,
+                    }
               ),
             }
       )

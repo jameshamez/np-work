@@ -82,12 +82,16 @@ export function returnReason(task: Task, logs: TaskLog[]): string {
 
 /**
  * คนที่ลงมือทำการ์ดแทน นอกเหนือจากผู้ที่ถูกมอบหมาย
- *   นับจาก: ผู้กดส่งตรวจงาน (log ที่สถานะใหม่เป็น pending_review) และผู้อัปโหลดไฟล์แนบ
+ *   นับจาก: ผู้กดส่งตรวจงาน (log ที่สถานะใหม่เป็น pending_review), ผู้อัปโหลดไฟล์แนบ และผู้ติ๊ก checklist
  *   ไม่นับ: เจ้าของงาน และผู้ที่ถูกส่งงานต่อ (assignedTarget) — สองคนนี้ทำงานในการ์ดอยู่แล้วตามหน้าที่
  *   ไม่นับการอนุมัติ/ตีกลับของผู้ตรวจ เพราะเป็นการตรวจ ไม่ใช่การทำงาน
  * เรียงตามครั้งแรกที่เข้ามาทำ
  */
-export function taskContributors(task: Task, logs: TaskLog[]): { userId: string; name: string }[] {
+export function taskContributors(
+  task: Task,
+  logs: TaskLog[],
+  users: { id: string; fullName: string }[] = []
+): { userId: string; name: string }[] {
   const skip = new Set([task.assignedToUserId, task.assignedTargetUserId].filter(Boolean));
   const events = [
     ...logs
@@ -96,11 +100,18 @@ export function taskContributors(task: Task, logs: TaskLog[]): { userId: string;
     ...task.attachments
       .filter(a => a.uploadedById)
       .map(a => ({ userId: a.uploadedById as string, name: a.uploadedBy, at: a.uploadedAt })),
+    ...task.checklists
+      .filter(c => c.completed && c.completedById)
+      .map(c => ({
+        userId: c.completedById as string,
+        name: users.find(u => u.id === c.completedById)?.fullName ?? '',
+        at: c.completedAt ?? task.lastUpdatedAt,
+      })),
   ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 
   const seen = new Map<string, string>();
   events.forEach(e => {
-    if (e.userId && !skip.has(e.userId) && !seen.has(e.userId)) seen.set(e.userId, cleanName(e.name));
+    if (e.userId && e.name && !skip.has(e.userId) && !seen.has(e.userId)) seen.set(e.userId, cleanName(e.name));
   });
   return [...seen.entries()].map(([userId, name]) => ({ userId, name }));
 }

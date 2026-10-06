@@ -224,6 +224,19 @@ describe('taskContributors', () => {
     ]);
   });
 
+  it('counts whoever ticked a checklist item, named from the user list', () => {
+    const t = task({
+      assignedTargetUserId: 'u2',
+      checklists: [
+        { id: 'c1', title: 'ก', completed: true, completedById: 'u6', completedAt: '2026-09-05T03:00:00Z' },
+        { id: 'c2', title: 'ข', completed: true, completedById: 'u2', completedAt: '2026-09-05T04:00:00Z' },
+        { id: 'c3', title: 'ค', completed: false },
+      ],
+    });
+    const users = [{ id: 'u6', fullName: 'พี่ฟ้อง (User)' }, { id: 'u2', fullName: 'พลอย' }];
+    expect(taskContributors(t, [], users)).toEqual([{ userId: 'u6', name: 'พี่ฟ้อง' }]);
+  });
+
   it('is empty when only the assigned people worked on the card', () => {
     expect(taskContributors(task({}), [log('u1', 'ออม', 'pending_review', '2026-09-03T03:00:00Z')])).toEqual([]);
   });
