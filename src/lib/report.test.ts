@@ -7,6 +7,7 @@ import {
   isInScope,
   isLate,
   isLateAlert,
+  latestSubmission,
   monthRange,
   needsFollowUp,
   returnReason,
@@ -239,5 +240,28 @@ describe('taskContributors', () => {
 
   it('is empty when only the assigned people worked on the card', () => {
     expect(taskContributors(task({}), [log('u1', 'ออม', 'pending_review', '2026-09-03T03:00:00Z')])).toEqual([]);
+  });
+});
+
+describe('latestSubmission', () => {
+  const log = (comment: string, createdAt: string, newStatus: TaskLog['newStatus'] = 'pending_review') =>
+    ({ id: createdAt, taskId: 't1', actionByUserId: 'u3', actionByUserName: 'พี่หนึ่ง (User)',
+       onBehalfOfUserId: 'u1', onBehalfOfUserName: 'ออม', newStatus, comment, createdAt }) as TaskLog;
+
+  it('takes the latest submission comment without the on-behalf prefix', () => {
+    const logs = [
+      log('ครั้งแรก', '2026-09-03T03:00:00Z'),
+      log('[ส่งแทนโดย พี่หนึ่ง ให้แก่ ออม] แก้ตามที่ตีกลับแล้ว', '2026-09-05T03:00:00Z'),
+      log('ตีกลับ', '2026-09-06T03:00:00Z', 'returned'),
+    ];
+    expect(latestSubmission(task({}), logs)).toEqual({
+      comment: 'แก้ตามที่ตีกลับแล้ว',
+      submittedBy: 'พี่หนึ่ง',
+      submittedAt: '2026-09-05T03:00:00Z',
+    });
+  });
+
+  it('is null before the card was ever submitted', () => {
+    expect(latestSubmission(task({}), [])).toBeNull();
   });
 });

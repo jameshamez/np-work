@@ -20,6 +20,13 @@ import { supabase } from '../lib/supabase';
 import * as api from '../lib/api';
 import * as lineApi from '../lib/lineApi';
 
+export type TaskDetailsPatch = Partial<{
+  description: string;
+  googleDriveUrl: string;
+  delayReason: string;
+  voiceMemoUrl: string;
+}>;
+
 export interface AppContextType {
   currentUser: User | null;
   users: User[];
@@ -97,10 +104,13 @@ export interface AppContextType {
     resultStatus?: 'success' | 'fail',
     resultReason?: string
   ) => void;
+  /** บันทึกรายละเอียดเล็ก ๆ ของการ์ด (คำอธิบาย, ลิงก์ Drive, หมายเหตุล่าช้า, เสียงสั่งงาน) */
+  updateTaskDetails: (taskId: string, details: TaskDetailsPatch) => void;
   submitTaskForReview: (
     taskId: string,
     comment: string,
-    attachmentsData: { name: string; url: string; type: 'image' | 'file'; size: number }[]
+    attachmentsData: { name: string; url: string; type: 'image' | 'file'; size: number }[],
+    extra?: { reviewerUserId?: string; googleDriveUrl?: string }
   ) => void;
   /** อัปโหลดไฟล์แนบขึ้น Storage แล้วคืนลิงก์ถาวร — โยน error ออกมาให้ผู้เรียกจัดการเอง */
   uploadAttachmentFile: (file: File) => Promise<string>;
@@ -566,10 +576,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // ---------------------------------------------------------------------------
   // การเปลี่ยนสถานะงาน — ผ่านฟังก์ชันฝั่ง DB ที่เขียน log และแจ้งเตือนให้ครบในครั้งเดียว
   // ---------------------------------------------------------------------------
+  const updateTaskDetails = (taskId: string, details: TaskDetailsPatch) => {
+    const fields: Parameters<typeof api.updateTaskFields>[2] = {};
+    if (details.description !== undefined) fields.description = details.description;
+    if (details.googleDriveUrl !== undefined) fields.google_drive_url = details.googleDriveUrl.trim() || null;
+    if (details.delayReason !== undefined) fields.delay_reason = details.delayReason.trim() || null;
+    if (details.voiceMemoUrl !== undefined) fields.voice_memo_url = details.voiceMemoUrl || null;
+    if (Object.keys(fields).length === 0) return;
+
+    setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, ...details } : t)));
+    void run(async () => {
+      try {
+        await api.updateTaskFields(db, taskId, fields);
+      } finally {
+        await refreshTask(taskId);
+      }
+    });
+  };
+
   const submitTaskForReview = (
     taskId: string,
     comment: string,
-    attachmentsData: { name: string; url: string; type: 'image' | 'file'; size: number }[]
+    attachmentsData: { name: string; url: string; type: 'image' | 'file'; size: number }[],
+    extra?: { reviewerUserId?: string; googleDriveUrl?: string }
   ) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || !profile) return;
@@ -580,6 +609,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       : comment;
 
     void run(async () => {
+      // บันทึกผู้ตรวจและลิงก์ Drive ก่อนเปลี่ยนสถานะ — หลังส่งตรวจแล้วการ์ดถูกล็อก
+      const fields: Parameters<typeof api.updateTaskFields>[2] = {};
+      if (extra?.reviewerUserId) fields.reviewer_user_id = extra.reviewerUserId;
+      if (extra?.googleDriveUrl?.trim()) fields.google_drive_url = extra.googleDriveUrl.trim();
+      if (Object.keys(fields).length > 0) await api.updateTaskFields(db, taskId, fields);
+
       const logId = await api.changeTaskStatus(db, taskId, 'pending_review', logComment, task.assignedToUserId);
 
       if (attachmentsData.length > 0) {
@@ -902,6 +937,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteChecklistItem,
         replaceChecklist,
         updateChecklist,
+        updateTaskDetails,
         submitTaskForReview,
         uploadAttachmentFile,
         addTaskImages,

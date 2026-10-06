@@ -116,6 +116,25 @@ export function taskContributors(
   return [...seen.entries()].map(([userId, name]) => ({ userId, name }));
 }
 
+/**
+ * ข้อความผลการดำเนินงานจากการส่งตรวจครั้งล่าสุด (log ที่สถานะใหม่เป็น pending_review)
+ * ตัดป้าย [ส่งแทนโดย … ให้แก่ …] ที่ระบบเติมไว้หน้าข้อความออก — ผู้ส่งแสดงแยกใน submittedBy อยู่แล้ว
+ */
+export function latestSubmission(
+  task: Task,
+  logs: TaskLog[]
+): { comment: string; submittedBy: string; submittedAt: string } | null {
+  const last = logs
+    .filter(l => l.taskId === task.id && l.newStatus === 'pending_review')
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+  if (!last) return null;
+  return {
+    comment: last.comment.replace(/^\[ส่งแทนโดย[^\]]*\]\s*/, '').trim(),
+    submittedBy: cleanName(last.actionByUserName),
+    submittedAt: last.createdAt,
+  };
+}
+
 export type StatusCounts = Record<TaskStatus, number>;
 
 export function countByStatus(tasks: Task[]): StatusCounts {

@@ -99,14 +99,6 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
       return;
     }
 
-    const reviewerObj = users.find(u => u.id === selectedReviewerId);
-    if (reviewerObj) {
-      task.reviewerUserId = reviewerObj.id;
-      task.reviewerUserName = reviewerObj.fullName;
-    }
-    if (googleDriveUrl.trim()) {
-      task.googleDriveUrl = googleDriveUrl.trim();
-    }
 
     const attachments: { name: string; url: string; type: 'image' | 'file'; size: number }[] =
       uploadedPictures.map(p => ({ name: p.name, url: p.url, type: 'image', size: p.size }));
@@ -120,7 +112,10 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({ task, onClose 
       });
     }
 
-    submitTaskForReview(task.id, comment, attachments);
+    submitTaskForReview(task.id, comment, attachments, {
+      reviewerUserId: users.some(u => u.id === selectedReviewerId) ? selectedReviewerId : undefined,
+      googleDriveUrl,
+    });
     pictures.forEach(p => URL.revokeObjectURL(p.url));
     setIsSubmitting(false);
     onClose();

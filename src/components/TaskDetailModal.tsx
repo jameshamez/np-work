@@ -5,7 +5,7 @@ import { KUMilestonesView } from './KUMilestonesView';
 import { ImageAnnotationViewer } from './ImageAnnotationViewer';
 import { VoiceInputButton } from './VoiceInputButton';
 import { DeleteTaskConfirmModal } from './DeleteTaskConfirmModal';
-import { isLate as isTaskLate, taskContributors } from '../lib/report';
+import { isLate as isTaskLate, latestSubmission, taskContributors } from '../lib/report';
 import {
   X,
   UsersRound,
@@ -65,7 +65,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   onClose,
   onOpenSubmitModal,
 }) => {
-  const { currentUser, updateChecklist, addChecklistItem, renameChecklistItem, deleteChecklistItem, replaceChecklist, logs, approveTask, returnTask, addAnnotation, users, updateTaskFinancials, deleteTask, addTaskImages, deleteAttachment } = useApp();
+  const { currentUser, updateTaskDetails, updateChecklist, addChecklistItem, renameChecklistItem, deleteChecklistItem, replaceChecklist, logs, approveTask, returnTask, addAnnotation, users, updateTaskFinancials, deleteTask, addTaskImages, deleteAttachment } = useApp();
 
   const [blueprintId, setBlueprintId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'info' | 'ku_flow' | 'annotation' | 'financials' | 'attachments' | 'history'>(
@@ -134,6 +134,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const canReview = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
   // คนที่เข้ามาทำการ์ดแทน นอกจากเจ้าของงานและผู้ที่ถูกส่งงานต่อ
   const contributors = taskContributors(task, logs, users);
+  // ข้อความผลการดำเนินงานที่กรอกตอนส่งตรวจครั้งล่าสุด
+  const submission = latestSubmission(task, logs);
 
   // ลบการ์ดถาวรได้เฉพาะ admin ขึ้นไป — ด่านจริงคือ policy tasks_delete_admin ที่ฐานข้อมูล
   const canDelete = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
@@ -430,7 +432,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          task.description = descText;
+                          if (descText !== task.description) updateTaskDetails(task.id, { description: descText });
                           setIsEditingDesc(false);
                         }}
                         className="px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold shadow-2xs"
@@ -445,6 +447,25 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   </p>
                 )}
               </div>
+
+              {/* ผลการดำเนินงานที่กรอกตอนส่งตรวจ (ครั้งล่าสุด) */}
+              {submission && (
+                <div className="space-y-1.5 bg-emerald-50/60 p-3.5 rounded-2xl border border-emerald-200">
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <h4 className="text-xs font-bold text-emerald-900">รายละเอียดผลการดำเนินงาน (ส่งตรวจล่าสุด):</h4>
+                    <span className="text-[10px] font-bold text-emerald-800">
+                      โดย {submission.submittedBy} •{' '}
+                      {new Date(submission.submittedAt).toLocaleString('th-TH', {
+                        day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit',
+                        timeZone: 'Asia/Bangkok',
+                      })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">
+                    {submission.comment || 'ไม่ได้ระบุรายละเอียด'}
+                  </p>
+                </div>
+              )}
 
               {/* Google Drive Integration Box */}
               <div className="bg-blue-50/60 border border-blue-200 rounded-2xl p-3.5 space-y-2">
@@ -461,9 +482,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   <input
                     type="url"
                     value={driveUrl}
-                    onChange={e => {
-                      setDriveUrl(e.target.value);
-                      task.googleDriveUrl = e.target.value;
+                    onChange={e => setDriveUrl(e.target.value)}
+                    onBlur={() => {
+                      if (driveUrl.trim() !== (task.googleDriveUrl ?? '')) {
+                        updateTaskDetails(task.id, { googleDriveUrl: driveUrl.trim() });
+                      }
                     }}
                     placeholder="เช่น https://drive.google.com/drive/folders/xxxxxxxx"
                     className="flex-1 p-2 text-xs border border-blue-200 rounded-xl bg-white text-blue-950 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -497,9 +520,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 <textarea
                   rows={2}
                   value={delayReason}
-                  onChange={e => {
-                    setDelayReason(e.target.value);
-                    task.delayReason = e.target.value;
+                  onChange={e => setDelayReason(e.target.value)}
+                  onBlur={() => {
+                    if (delayReason.trim() !== (task.delayReason ?? '')) {
+                      updateTaskDetails(task.id, { delayReason: delayReason.trim() });
+                    }
                   }}
                   placeholder="เช่น อยู่ระหว่างรอเอกสารอนุมัติจากหน่วยงานภายนอก"
                   className="w-full p-2.5 text-xs border border-red-200 rounded-xl bg-white text-red-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500"
@@ -937,7 +962,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   <VoiceInputButton onTranscript={text => {
                     const memo = `เสียงสั่งงาน: "${text}"`;
                     setVoiceMemoUrl(memo);
-                    task.voiceMemoUrl = memo;
+                    updateTaskDetails(task.id, { voiceMemoUrl: memo });
                   }} />
                 </div>
                 {voiceMemoUrl ? (
@@ -950,7 +975,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                       type="button"
                       onClick={() => {
                         setVoiceMemoUrl('');
-                        task.voiceMemoUrl = '';
+                        updateTaskDetails(task.id, { voiceMemoUrl: '' });
                       }}
                       className="text-[10px] text-red-600 font-bold hover:underline cursor-pointer"
                     >
