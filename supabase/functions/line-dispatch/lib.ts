@@ -63,3 +63,38 @@ export function classifyPushResult(status: number): PushOutcome {
   if (status === LINE_DUPLICATE_STATUS) return 'deduped';
   return shouldRetry(status) ? 'retry' : 'giveup';
 }
+
+/**
+ * X-Line-Retry-Key ของการส่ง 1 แถวเข้า 1 กลุ่ม
+ *
+ * LINE กันซ้ำด้วยคีย์นี้ทั้ง channel ถ้าใช้ row.id เดียวกันกับทุกกลุ่ม กลุ่มที่สอง
+ * จะได้ 409 ทั้งที่ยังไม่เคยได้รับข้อความ จึงต้องมีคีย์แยกต่อกลุ่ม และต้อง "คงที่"
+ * (ได้ค่าเดิมทุกครั้ง) เพื่อให้ตอนลองส่งแถวเดิมใหม่ กลุ่มที่ได้รับไปแล้วตอบ 409
+ * แทนการได้ข้อความซ้ำ
+ *
+ * กลุ่มหลักใช้ row.id ตรง ๆ เหมือนเดิม — แถวที่ค้างลองใหม่จากก่อนอัปเดตจะไม่ซ้ำ
+ * กลุ่มเพิ่มเติมใช้ SHA-256(row.id:groupId) จัดรูปเป็น UUID (LINE บังคับรูปแบบ UUID)
+ */
+export async function retryKeyFor(rowId: string, groupId: string, isPrimary: boolean): Promise<string> {
+  if (isPrimary) return rowId;
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${rowId}:${groupId}`)),
+  ).slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant RFC 4122
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * รวมผลการส่ง 1 แถวเข้าหลายกลุ่มเป็นผลเดียวของแถวนั้น
+ *   ทุกกลุ่มถึงแล้ว (sent / deduped)  -> sent (deduped ถ้ามีกลุ่มไหนเป็น deduped)
+ *   มีกลุ่มที่ล้มเหลวชั่วคราว         -> retry  (รอบหน้าส่งใหม่ทุกกลุ่ม กลุ่มที่ถึงแล้วจะได้ 409)
+ *   ที่เหลือล้มเหลวถาวรอย่างน้อย 1 กลุ่ม -> giveup
+ * ให้ retry ชนะ giveup เพราะกลุ่มที่ล้มเหลวชั่วคราวยังมีโอกาสได้รับ
+ */
+export function combineOutcomes(outcomes: PushOutcome[]): PushOutcome {
+  if (outcomes.includes('retry')) return 'retry';
+  if (outcomes.includes('giveup')) return 'giveup';
+  return outcomes.includes('deduped') ? 'deduped' : 'sent';
+}

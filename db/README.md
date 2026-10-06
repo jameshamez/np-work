@@ -29,6 +29,7 @@
 | `16_alert_minutes.sql` | แก้การตั้งเวลาแจ้งเตือนขาดการอัปเดตรายบุคคลที่ตั้งไม่ติด — เปลี่ยน `users.no_update_alert_hours` จาก integer (1–168 ชม.) เป็น numeric ให้ตั้งเป็นนาทีได้ (15 นาที – 168 ชม.) — รันหลัง `09` — รันซ้ำได้ |
 | `17_checklist_completed_by.sql` | เก็บว่าใครติ๊ก checklist (`completed_by_user_id`, `completed_at` — trigger เติมจาก session) ให้คนที่มาติ๊กงานแทนขึ้นใน "ผู้ร่วมทำงานแทน" — รันซ้ำได้ |
 | `18_project_delete_super_admin.sql` | ลบโครงการได้เฉพาะ Super Admin (เดิม admin ทุกคนลบได้) — ใช้คู่กับเมนู "การตั้งค่าระบบ" — รันซ้ำได้ |
+| `19_line_extra_groups.sql` | ตาราง `line_groups` ให้ส่งแจ้งเตือน LINE เข้ากลุ่มเพิ่มเติมได้ (ตั้งจากหน้าการตั้งค่าระบบ) — **ต้อง deploy Edge Function `line-dispatch` เวอร์ชันใหม่คู่กัน** — รันซ้ำได้ |
 
 ต้องใช้ **PostgreSQL 15 ขึ้นไป** (ใช้ `security_invoker` ของ view) ทดสอบแล้วบน PostgreSQL 17.10
 
@@ -62,7 +63,8 @@ psql "postgresql://postgres:[รหัสผ่าน]@db.[project-ref].supabase
   -f db/15_remove_user.sql \
   -f db/16_alert_minutes.sql \
   -f db/17_checklist_completed_by.sql \
-  -f db/18_project_delete_super_admin.sql
+  -f db/18_project_delete_super_admin.sql \
+  -f db/19_line_extra_groups.sql
 ```
 
 > **`11` กับ `12` ต้องมาคู่กัน** — `11` เปิดให้ลบการ์ดงานได้ ส่วน `12` คือตัวที่บันทึกว่าใครลบ

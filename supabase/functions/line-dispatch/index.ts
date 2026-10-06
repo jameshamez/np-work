@@ -9,7 +9,15 @@
  * deploy ด้วย --no-verify-jwt แล้วใช้ secret ตัวนี้คุมสิทธิ์แทน
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { buildPushBody, classifyPushResult, LINE_PUSH_URL, MAX_ATTEMPTS } from './lib.ts';
+import {
+  buildPushBody,
+  classifyPushResult,
+  combineOutcomes,
+  LINE_PUSH_URL,
+  MAX_ATTEMPTS,
+  type PushOutcome,
+  retryKeyFor,
+} from './lib.ts';
 
 /**
  * ค่า attempts ที่เขียนทับเมื่อ "เลิกลองแล้ว"
@@ -19,7 +27,8 @@ import { buildPushBody, classifyPushResult, LINE_PUSH_URL, MAX_ATTEMPTS } from '
 const GIVE_UP_ATTEMPTS = MAX_ATTEMPTS;
 
 const token = Deno.env.get('LINE_CHANNEL_ACCESS_TOKEN') ?? '';
-const groupId = Deno.env.get('LINE_GROUP_ID') ?? '';
+// กลุ่มหลัก — กลุ่มเพิ่มเติมอยู่ในตาราง line_groups (ตั้งจากหน้าการตั้งค่าระบบ)
+const primaryGroupId = Deno.env.get('LINE_GROUP_ID') ?? '';
 const dispatchSecret = Deno.env.get('LINE_DISPATCH_SECRET') ?? '';
 
 const db = createClient(
@@ -33,30 +42,35 @@ const json = (body: unknown, status = 200) =>
     headers: { 'Content-Type': 'application/json' },
   });
 
+/**
+ * ตั้งค่า LINE ไม่ครบ — ห้ามหายเงียบสนิท แถวที่รอส่งต้องมี last_error ให้แอดมินเห็น
+ * ไม่งั้นแยกไม่ออกจากตอนที่ระบบว่างงานจริง ๆ
+ */
+async function failMisconfigured(msg: string): Promise<Response> {
+  try {
+    const { error: markError } = await db
+      .from('line_outbox')
+      .update({ last_error: msg })
+      .eq('status', 'pending');
+    if (markError) {
+      console.error(`[line-dispatch] เขียน last_error ไม่ลง (ตั้งค่า LINE ไม่ครบ): ${markError.message}`);
+    }
+  } catch (e) {
+    // ถ้า SUPABASE_URL/SERVICE_ROLE_KEY หายไปด้วย db client เองอาจใช้งานไม่ได้
+    // กันไว้ไม่ให้ throw ทับ response 500 ที่ตั้งใจจะคืนอยู่แล้ว
+    console.error(
+      `[line-dispatch] เขียน last_error ไม่ลง (ตั้งค่า LINE ไม่ครบ): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  return json({ error: msg }, 500);
+}
+
 Deno.serve(async (req: Request) => {
   if (!dispatchSecret || req.headers.get('x-line-dispatch-secret') !== dispatchSecret) {
     return json({ error: 'ไม่ได้รับอนุญาต' }, 401);
   }
-  if (!token || !groupId) {
-    // ทาง config หายเงียบสนิทไม่ได้ — แถวที่รอส่งต้องมี last_error ให้แอดมินเห็น
-    // ไม่งั้นแยกไม่ออกจากตอนที่ระบบว่างงานจริง ๆ
-    const msg = 'ยังไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN หรือ LINE_GROUP_ID';
-    try {
-      const { error: markError } = await db
-        .from('line_outbox')
-        .update({ last_error: msg })
-        .eq('status', 'pending');
-      if (markError) {
-        console.error(`[line-dispatch] เขียน last_error ไม่ลง (ตั้งค่า LINE ไม่ครบ): ${markError.message}`);
-      }
-    } catch (e) {
-      // ถ้า SUPABASE_URL/SERVICE_ROLE_KEY หายไปด้วย db client เองอาจใช้งานไม่ได้
-      // กันไว้ไม่ให้ throw ทับ response 500 ที่ตั้งใจจะคืนอยู่แล้ว
-      console.error(
-        `[line-dispatch] เขียน last_error ไม่ลง (ตั้งค่า LINE ไม่ครบ): ${e instanceof Error ? e.message : String(e)}`,
-      );
-    }
-    return json({ error: msg }, 500);
+  if (!token) {
+    return await failMisconfigured('ยังไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN');
   }
 
   // 1) สวิตช์ใหญ่
@@ -68,12 +82,33 @@ Deno.serve(async (req: Request) => {
   if (configError) return json({ error: `อ่าน line_config ไม่ได้: ${configError.message}` }, 500);
   if (!config?.enabled) return json({ skipped: 'ปิดการส่ง LINE อยู่' });
 
+  // กลุ่มปลายทาง = กลุ่มหลัก + กลุ่มเพิ่มเติมที่เปิดอยู่ (ไม่ซ้ำกัน)
+  const { data: extraGroups, error: groupsError } = await db
+    .from('line_groups')
+    .select('group_id')
+    .eq('enabled', true);
+  // อ่านไม่ได้ (เช่น deploy ฟังก์ชันนี้ก่อนรัน db/19 ตาราง line_groups ยังไม่มี) ต้องไม่ทำให้กลุ่มหลักเงียบไปด้วย
+  // ส่งเข้ากลุ่มหลักต่อ แล้วทิ้งร่องรอยไว้ใน log
+  if (groupsError) {
+    console.error(`[line-dispatch] อ่าน line_groups ไม่ได้ ส่งเฉพาะกลุ่มหลัก: ${groupsError.message}`);
+  }
+
+  const recipients: { groupId: string; isPrimary: boolean }[] = [];
+  if (primaryGroupId) recipients.push({ groupId: primaryGroupId, isPrimary: true });
+  for (const g of (extraGroups ?? []) as { group_id: string }[]) {
+    if (!recipients.some(r => r.groupId === g.group_id)) recipients.push({ groupId: g.group_id, isPrimary: false });
+  }
+  if (recipients.length === 0) {
+    return await failMisconfigured('ยังไม่มีกลุ่ม LINE ปลายทาง (ตั้ง LINE_GROUP_ID หรือเพิ่มกลุ่มในหน้าการตั้งค่าระบบ)');
+  }
+
   // 2) เพดานรายเดือน — กันโควตา LINE บานปลาย
+  // 1 แถวถูกส่งออกไปทุกกลุ่ม จึงนับเป็น แถวที่ส่งแล้ว × จำนวนกลุ่มปลายทาง
   const monthStart = new Date();
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
 
-  const { count: sentThisMonth, error: countError } = await db
+  const { count: sentRowsThisMonth, error: countError } = await db
     .from('line_outbox')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'sent')
@@ -81,7 +116,8 @@ Deno.serve(async (req: Request) => {
 
   if (countError) return json({ error: `นับโควตาไม่ได้: ${countError.message}` }, 500);
 
-  if ((sentThisMonth ?? 0) >= config.monthly_cap) {
+  const sentThisMonth = (sentRowsThisMonth ?? 0) * recipients.length;
+  if (sentThisMonth >= config.monthly_cap) {
     // ไม่เปลี่ยนสถานะแถว ปล่อยค้างไว้ให้ส่งต่อเดือนหน้าได้
     // แต่เขียน last_error ไว้ให้แอดมินเห็นว่าทำไมเงียบ — ห้ามเงียบหายเฉย ๆ
     const { error: markError } = await db
@@ -99,33 +135,47 @@ Deno.serve(async (req: Request) => {
   if (claimError) return json({ error: `ดึงคิวไม่ได้: ${claimError.message}` }, 500);
   if (!rows?.length) return json({ sent: 0, failed: 0 });
 
-  // 4) ยิงทีละแถว
+  // 4) ยิงทีละแถว ทีละกลุ่ม
   let sent = 0;
   let failed = 0;
 
   for (const row of rows as { id: string; message: string }[]) {
-    let status = 0;
-    let detail = '';
+    const outcomes: PushOutcome[] = [];
+    const problems: string[] = [];
 
-    try {
-      const res = await fetch(LINE_PUSH_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          // LINE ใช้ค่านี้กันข้อความซ้ำให้อีกชั้น เผื่อเรายิงซ้ำโดยไม่ตั้งใจ
-          'X-Line-Retry-Key': row.id,
-        },
-        body: JSON.stringify(buildPushBody(groupId, row.message)),
-      });
-      status = res.status;
-      if (!res.ok) detail = (await res.text()).slice(0, 500);
-    } catch (e) {
-      status = 0;
-      detail = e instanceof Error ? e.message : String(e);
+    for (const recipient of recipients) {
+      let status = 0;
+      let detail = '';
+
+      try {
+        const res = await fetch(LINE_PUSH_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            // LINE ใช้ค่านี้กันข้อความซ้ำให้อีกชั้น — คีย์แยกต่อกลุ่ม ดู retryKeyFor()
+            'X-Line-Retry-Key': await retryKeyFor(row.id, recipient.groupId, recipient.isPrimary),
+          },
+          body: JSON.stringify(buildPushBody(recipient.groupId, row.message)),
+        });
+        status = res.status;
+        if (!res.ok) detail = (await res.text()).slice(0, 300);
+      } catch (e) {
+        status = 0;
+        detail = e instanceof Error ? e.message : String(e);
+      }
+
+      const outcome = classifyPushResult(status);
+      outcomes.push(outcome);
+      if (outcome !== 'sent') {
+        const label = recipient.isPrimary ? 'กลุ่มหลัก' : `กลุ่ม ${recipient.groupId.slice(0, 9)}…`;
+        problems.push(`${label} HTTP ${status}${detail ? `: ${detail}` : ''}`);
+      }
     }
 
-    const outcome = classifyPushResult(status);
+    const outcome = combineOutcomes(outcomes);
+    // รายละเอียดของกลุ่มที่ไม่ได้ตอบ 2xx — ใช้เป็น last_error ให้แอดมินเห็นว่าติดที่กลุ่มไหน
+    const detail = problems.join(' | ');
 
     if (outcome === 'sent' || outcome === 'deduped') {
       // 409 = LINE เคยรับ X-Line-Retry-Key นี้ไปแล้ว แปลว่าข้อความถึงกลุ่มแล้ว
@@ -135,7 +185,7 @@ Deno.serve(async (req: Request) => {
       // แต่ยังเก็บหมายเหตุไว้ใน last_error ให้เห็นว่าเส้นทางนี้ไม่ใช่เส้นทางปกติ
       const dedupeNote =
         outcome === 'deduped'
-          ? `HTTP ${status}: LINE แจ้งว่าข้อความนี้ถูกส่งไปแล้ว (X-Line-Retry-Key ซ้ำ) ` +
+          ? `${detail} — LINE แจ้งว่าข้อความนี้ถูกส่งไปแล้ว (X-Line-Retry-Key ซ้ำ) ` +
             'จึงนับเป็นส่งสำเร็จและไม่ยิงซ้ำ'
           : null;
 
@@ -155,7 +205,7 @@ Deno.serve(async (req: Request) => {
         .from('line_outbox')
         .update({
           status: 'failed',
-          last_error: `HTTP ${status} (${note}): ${detail}`,
+          last_error: `(${note}) ${detail}`,
           // ปิดโอกาสลองใหม่ทันทีสำหรับ error ที่ลองไปก็ไม่ผ่าน
           ...(outcome === 'retry' ? {} : { attempts: GIVE_UP_ATTEMPTS }),
         })

@@ -84,3 +84,51 @@ export async function fetchLineOutbox(db: SupabaseClient, limit = 20): Promise<L
     sentAt: r.sent_at ?? undefined,
   }));
 }
+
+// =============================================================================
+// กลุ่ม LINE เพิ่มเติม (db/19_line_extra_groups.sql) — เฉพาะ Super Admin
+// ทุกข้อความส่งเข้ากลุ่มหลัก (secret LINE_GROUP_ID) + ทุกกลุ่มที่เปิดไว้ในตารางนี้
+// =============================================================================
+
+export interface LineGroup {
+  id: string;
+  name: string;
+  groupId: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
+/** Group ID ของ LINE = ตัว C ตามด้วย hex 32 ตัว — ตรงกับ constraint line_groups_group_id_format */
+export const LINE_GROUP_ID_PATTERN = /^C[0-9a-f]{32}$/;
+
+export async function fetchLineGroups(db: SupabaseClient): Promise<LineGroup[]> {
+  const { data, error } = await db.from('line_groups').select('*').order('created_at');
+  if (error) throw new Error(`อ่านรายชื่อกลุ่ม LINE ไม่สำเร็จ: ${error.message}`);
+  return (data ?? []).map(r => ({
+    id: r.id,
+    name: r.name,
+    groupId: r.group_id,
+    enabled: r.enabled,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function addLineGroup(db: SupabaseClient, name: string, groupId: string): Promise<void> {
+  const { error } = await db.from('line_groups').insert({ name: name.trim(), group_id: groupId.trim() });
+  if (error) {
+    if (error.code === '23505') throw new Error('เพิ่มกลุ่ม LINE ไม่สำเร็จ: มี Group ID นี้อยู่แล้ว');
+    throw new Error(`เพิ่มกลุ่ม LINE ไม่สำเร็จ: ${error.message}`);
+  }
+}
+
+export async function setLineGroupEnabled(db: SupabaseClient, id: string, enabled: boolean): Promise<void> {
+  const { data, error } = await db.from('line_groups').update({ enabled }).eq('id', id).select('id');
+  if (error) throw new Error(`บันทึกสถานะกลุ่ม LINE ไม่สำเร็จ: ${error.message}`);
+  if (!data || data.length === 0) throw new Error('บันทึกสถานะกลุ่ม LINE ไม่สำเร็จ: เฉพาะ Super Admin เท่านั้น');
+}
+
+export async function deleteLineGroup(db: SupabaseClient, id: string): Promise<void> {
+  const { data, error } = await db.from('line_groups').delete().eq('id', id).select('id');
+  if (error) throw new Error(`ลบกลุ่ม LINE ไม่สำเร็จ: ${error.message}`);
+  if (!data || data.length === 0) throw new Error('ลบกลุ่ม LINE ไม่สำเร็จ: เฉพาะ Super Admin เท่านั้น');
+}

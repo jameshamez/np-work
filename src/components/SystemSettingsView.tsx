@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { AlertCircle, FolderKanban, Search, Settings, Trash2 } from 'lucide-react';
+import { LineGroupsSettings } from './LineGroupsSettings';
 
 /**
  * การตั้งค่าระบบ — เฉพาะ Super Admin
  *   จัดการโครงการ: ลบโครงการที่ไม่ใช้แล้ว (ด่านจริงคือ policy projects_delete_super_admin ใน db/18)
+ *   กลุ่ม LINE: เพิ่มกลุ่มที่รับแจ้งเตือนนอกจากกลุ่มหลัก (db/19)
  */
 export const SystemSettingsView: React.FC = () => {
   const { currentUser, projects, tasks, deleteProject } = useApp();
@@ -123,6 +125,8 @@ export const SystemSettingsView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      <LineGroupsSettings />
     </div>
   );
 };

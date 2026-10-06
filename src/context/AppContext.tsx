@@ -135,6 +135,11 @@ export interface AppContextType {
   sendCustomNotificationToUsers: (userIds: string[], title: string, customMessage: string) => void;
   /** ดึงคิวข้อความ LINE ล่าสุดมาแสดงในแผงสถานะของแอดมิน — โยน error ออกมาให้ผู้เรียกจัดการเอง */
   fetchLineQueue: () => Promise<lineApi.LineOutboxRow[]>;
+  /** กลุ่ม LINE เพิ่มเติม (เฉพาะ Super Admin) — โยน error ออกมาให้ผู้เรียกจัดการเอง */
+  fetchLineGroups: () => Promise<lineApi.LineGroup[]>;
+  addLineGroup: (name: string, groupId: string) => Promise<void>;
+  setLineGroupEnabled: (id: string, enabled: boolean) => Promise<void>;
+  deleteLineGroup: (id: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -823,6 +828,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // เพราะแผงสถานะใน AdminApprovalView ต้องเอาไปแสดงเป็นข้อความของตัวเอง ไม่ใช่ไปโผล่ที่แบนเนอร์กลาง
   const fetchLineQueue = useCallback(() => lineApi.fetchLineOutbox(db), [db]);
 
+  // กลุ่ม LINE เพิ่มเติม — ไม่ครอบด้วย run() เหตุผลเดียวกับ fetchLineQueue (หน้าตั้งค่าแสดง error เอง)
+  const fetchLineGroups = useCallback(() => lineApi.fetchLineGroups(db), [db]);
+  const addLineGroup = useCallback((name: string, groupId: string) => lineApi.addLineGroup(db, name, groupId), [db]);
+  const setLineGroupEnabled = useCallback(
+    (id: string, enabled: boolean) => lineApi.setLineGroupEnabled(db, id, enabled),
+    [db]
+  );
+  const deleteLineGroup = useCallback((id: string) => lineApi.deleteLineGroup(db, id), [db]);
+
   // ---------------------------------------------------------------------------
   // เทมเพลต Flow
   // ---------------------------------------------------------------------------
@@ -963,6 +977,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sendTestLineMessage,
         sendCustomNotificationToUsers,
         fetchLineQueue,
+        fetchLineGroups,
+        addLineGroup,
+        setLineGroupEnabled,
+        deleteLineGroup,
       }}
     >
       {error && (

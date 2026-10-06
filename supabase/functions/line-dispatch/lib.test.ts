@@ -3,8 +3,10 @@ import {
   buildPushBody,
   clampMessage,
   classifyPushResult,
+  combineOutcomes,
   LINE_DUPLICATE_STATUS,
   MAX_ATTEMPTS,
+  retryKeyFor,
   shouldRetry,
 } from './lib';
 
@@ -98,5 +100,41 @@ describe('classifyPushResult', () => {
 
   it('409 ไม่ควรลองใหม่เช่นกัน — แต่เหตุผลคนละเรื่องกับ giveup', () => {
     expect(shouldRetry(LINE_DUPLICATE_STATUS)).toBe(false);
+  });
+});
+
+describe('retryKeyFor', () => {
+  const rowId = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b';
+  const groupA = 'C' + 'a'.repeat(32);
+  const groupB = 'C' + 'b'.repeat(32);
+
+  it('กลุ่มหลักใช้ id ของแถวตรง ๆ เหมือนก่อนมีหลายกลุ่ม', async () => {
+    expect(await retryKeyFor(rowId, groupA, true)).toBe(rowId);
+  });
+
+  it('กลุ่มเพิ่มเติมได้คีย์รูปแบบ UUID ที่คงที่ และไม่ซ้ำกันระหว่างกลุ่ม', async () => {
+    const a1 = await retryKeyFor(rowId, groupA, false);
+    const a2 = await retryKeyFor(rowId, groupA, false);
+    const b = await retryKeyFor(rowId, groupB, false);
+    expect(a1).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(a1).toBe(a2);
+    expect(a1).not.toBe(b);
+    expect(a1).not.toBe(rowId);
+  });
+});
+
+describe('combineOutcomes', () => {
+  it('ทุกกลุ่มถึงแล้วนับเป็นส่งสำเร็จ', () => {
+    expect(combineOutcomes(['sent', 'sent'])).toBe('sent');
+    expect(combineOutcomes(['sent', 'deduped'])).toBe('deduped');
+  });
+
+  it('มีกลุ่มล้มเหลวชั่วคราวให้ลองใหม่ แม้อีกกลุ่มจะล้มเหลวถาวร', () => {
+    expect(combineOutcomes(['sent', 'retry'])).toBe('retry');
+    expect(combineOutcomes(['giveup', 'retry'])).toBe('retry');
+  });
+
+  it('กลุ่มที่ล้มเหลวถาวรทำให้ทั้งแถวเลิกลอง', () => {
+    expect(combineOutcomes(['sent', 'giveup'])).toBe('giveup');
   });
 });
