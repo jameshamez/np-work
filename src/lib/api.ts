@@ -399,6 +399,26 @@ export async function createProject(db: SupabaseClient, name: string): Promise<P
   return mapProject(data);
 }
 
+/**
+ * ลบโครงการ — เฉพาะ Super Admin (policy projects_delete_super_admin ใน db/18)
+ * โครงการที่ยังมีการ์ดงาน (รวมร่าง) ลบไม่ได้ ต้องย้ายหรือลบการ์ดก่อน
+ */
+export async function deleteProject(db: SupabaseClient, projectId: string): Promise<void> {
+  const { count, error: countError } = await db
+    .from('tasks')
+    .select('id', { count: 'exact', head: true })
+    .eq('project_id', projectId);
+  if (countError) throw new Error(`ลบโครงการไม่สำเร็จ: ${countError.message}`);
+  if (count && count > 0) {
+    throw new Error(`ลบโครงการไม่สำเร็จ: ยังมีการ์ดงานในโครงการนี้ ${count} ใบ กรุณาย้ายหรือลบการ์ดงานก่อน`);
+  }
+
+  const { data, error } = await db.from('projects').delete().eq('id', projectId).select('id');
+  if (error) throw new Error(`ลบโครงการไม่สำเร็จ: ${error.message}`);
+  // RLS ไม่ให้ลบจะไม่ error แต่ได้ 0 แถว
+  if (!data || data.length === 0) throw new Error('ลบโครงการไม่สำเร็จ: เฉพาะ Super Admin เท่านั้นที่ลบโครงการได้');
+}
+
 // =============================================================================
 // การเขียนข้อมูล — งาน
 // =============================================================================

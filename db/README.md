@@ -28,6 +28,7 @@
 | `15_remove_user.sql` | ปุ่ม "ลบผู้ใช้" ในหน้า Super Admin สำหรับคนที่ลาออก — ลบบัญชีล็อกอินแต่เก็บโปรไฟล์ไว้ให้งานเก่าอ้างถึง และถ้ากลับมาสมัครด้วยอีเมลเดิมจะกลับไปรออนุมัติใหม่ — ต้องรันก่อน deploy แอปเวอร์ชันที่มีปุ่มนี้ — รันซ้ำได้ |
 | `16_alert_minutes.sql` | แก้การตั้งเวลาแจ้งเตือนขาดการอัปเดตรายบุคคลที่ตั้งไม่ติด — เปลี่ยน `users.no_update_alert_hours` จาก integer (1–168 ชม.) เป็น numeric ให้ตั้งเป็นนาทีได้ (15 นาที – 168 ชม.) — รันหลัง `09` — รันซ้ำได้ |
 | `17_checklist_completed_by.sql` | เก็บว่าใครติ๊ก checklist (`completed_by_user_id`, `completed_at` — trigger เติมจาก session) ให้คนที่มาติ๊กงานแทนขึ้นใน "ผู้ร่วมทำงานแทน" — รันซ้ำได้ |
+| `18_project_delete_super_admin.sql` | ลบโครงการได้เฉพาะ Super Admin (เดิม admin ทุกคนลบได้) — ใช้คู่กับเมนู "การตั้งค่าระบบ" — รันซ้ำได้ |
 
 ต้องใช้ **PostgreSQL 15 ขึ้นไป** (ใช้ `security_invoker` ของ view) ทดสอบแล้วบน PostgreSQL 17.10
 
@@ -60,7 +61,8 @@ psql "postgresql://postgres:[รหัสผ่าน]@db.[project-ref].supabase
   -f db/12_task_deletion_log.sql \
   -f db/15_remove_user.sql \
   -f db/16_alert_minutes.sql \
-  -f db/17_checklist_completed_by.sql
+  -f db/17_checklist_completed_by.sql \
+  -f db/18_project_delete_super_admin.sql
 ```
 
 > **`11` กับ `12` ต้องมาคู่กัน** — `11` เปิดให้ลบการ์ดงานได้ ส่วน `12` คือตัวที่บันทึกว่าใครลบ

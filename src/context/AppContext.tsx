@@ -47,6 +47,8 @@ export interface AppContextType {
   refreshAll: () => Promise<void>;
 
   addProject: (name: string) => Promise<Project>;
+  /** ลบโครงการ (เฉพาะ Super Admin, โครงการต้องไม่มีการ์ดงานเหลือ) */
+  deleteProject: (projectId: string) => void;
   addFlowTemplate: (data: {
     name: string;
     category?: ProjectCategory;
@@ -277,6 +279,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     },
     [db, projects]
   );
+
+  const deleteProject = (projectId: string) => {
+    void run(async () => {
+      await api.deleteProject(db, projectId);
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+    });
+  };
 
   // ---------------------------------------------------------------------------
   // งาน
@@ -918,6 +927,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteFlowTemplate,
         deleteTask,
         addProject,
+        deleteProject,
         toggleLineEnabled,
         setCurrentUserId: setViewAsUserId,
         approveUser,

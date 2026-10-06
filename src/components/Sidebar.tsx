@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Database,
   GraduationCap,
+  Settings,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -175,6 +176,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 {pendingUsersCount}
               </span>
             )}
+          </button>
+        )}
+
+        {currentUser?.role === 'super_admin' && (
+          <button
+            onClick={() => {
+              setActiveTab('settings');
+              setIsMobileOpen(false);
+            }}
+            className={`w-full flex items-center justify-between p-3 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'settings'
+                ? 'bg-white/80 text-[#ef6c00] shadow-xs border border-white'
+                : 'text-[#6a3000] hover:bg-white/30 opacity-90'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Settings className="w-4 h-4 text-[#ef6c00]" />
+              <span>การตั้งค่าระบบ</span>
+            </div>
           </button>
         )}
 

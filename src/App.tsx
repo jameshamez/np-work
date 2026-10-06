@@ -12,6 +12,7 @@ import { KUProjectDashboardView } from './components/KUProjectDashboardView';
 import { CalendarView } from './components/CalendarView';
 import { AuditLogView } from './components/AuditLogView';
 import { AdminApprovalView } from './components/AdminApprovalView';
+import { SystemSettingsView } from './components/SystemSettingsView';
 import { BackupModal } from './components/BackupModal';
 import { SubmitTaskModal } from './components/SubmitTaskModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
@@ -82,6 +83,8 @@ function AppContent() {
           )}
 
           {activeTab === 'admin' && <AdminApprovalView />}
+
+          {activeTab === 'settings' && <SystemSettingsView />}
 
           {activeTab === 'backup' && <BackupModal />}
         </main>
