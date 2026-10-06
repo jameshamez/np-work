@@ -43,12 +43,29 @@ interface TaskDetailModalProps {
   onOpenSubmitModal: (task: Task) => void;
 }
 
+// ขั้นตอนของปุ่ม "โหลด Flow RD"
+const RD_FLOW_STEPS = [
+  '1. แกะสูตร + จัดหาวัตถุดิบ',
+  '2. ทดลองครั้งที่ 1',
+  '3. ส่งตัวอย่างทดลองครั้งที่ 1 (ให้พี่รักษ์)',
+  '4. ปรับสูตรครั้งที่ 1',
+  '5. ส่งตัวอย่างหลังปรับสูตรครั้งที่ 1 (ถ้าผ่านไปข้อ 6 / ถ้าไม่ผ่าน ย้อนปรับสูตรครั้งที่ 2 และส่งตัวอย่างครั้งที่ 2)',
+  '6. ส่งตรวจข้อมูลโภชนาการ และขอเลขอย.',
+  '7. ออกแบบและทดลองบรรจุภัณฑ์',
+  '8. ทดลองเก็บ Shelf Life',
+  '9. คำนวณต้นทุนและกำหนดราคาขาย',
+  '10. ลงขาย',
+];
+
+// ข้อที่เพิ่งกดเพิ่ม ยังรอฐานข้อมูลออก id จริง — ห้ามติ๊ก/แก้/ลบจนกว่าจะบันทึกเสร็จ
+const isUnsaved = (id: string) => id.startsWith('pending-');
+
 export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   task,
   onClose,
   onOpenSubmitModal,
 }) => {
-  const { currentUser, updateChecklist, logs, approveTask, returnTask, addAnnotation, users, updateTaskFinancials, deleteTask, addTaskImages, deleteAttachment } = useApp();
+  const { currentUser, updateChecklist, addChecklistItem, renameChecklistItem, deleteChecklistItem, replaceChecklist, logs, approveTask, returnTask, addAnnotation, users, updateTaskFinancials, deleteTask, addTaskImages, deleteAttachment } = useApp();
 
   const [blueprintId, setBlueprintId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'info' | 'ku_flow' | 'annotation' | 'financials' | 'attachments' | 'history'>(
@@ -557,18 +574,14 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              task.checklists = [
-                                { id: `chk-${Date.now()}-1`, title: '1. แกะสูตร + จัดหาวัตถุดิบ', completed: true },
-                                { id: `chk-${Date.now()}-2`, title: '2. ทดลองครั้งที่ 1', completed: true },
-                                { id: `chk-${Date.now()}-3`, title: '3. ส่งตัวอย่างทดลองครั้งที่ 1 (ให้พี่รักษ์)', completed: true },
-                                { id: `chk-${Date.now()}-4`, title: '4. ปรับสูตรครั้งที่ 1', completed: false },
-                                { id: `chk-${Date.now()}-5`, title: '5. ส่งตัวอย่างหลังปรับสูตรครั้งที่ 1 (ถ้าผ่านไปข้อ 6 / ถ้าไม่ผ่าน ย้อนปรับสูตรครั้งที่ 2 และส่งตัวอย่างครั้งที่ 2)', completed: false },
-                                { id: `chk-${Date.now()}-6`, title: '6. ส่งตรวจข้อมูลโภชนาการ และขอเลขอย.', completed: false },
-                                { id: `chk-${Date.now()}-7`, title: '7. ออกแบบและทดลองบรรจุภัณฑ์', completed: false },
-                                { id: `chk-${Date.now()}-8`, title: '8. ทดลองเก็บ Shelf Life', completed: false },
-                                { id: `chk-${Date.now()}-9`, title: '9. คำนวณต้นทุนและกำหนดราคาขาย', completed: false },
-                                { id: `chk-${Date.now()}-10`, title: '10. ลงขาย', completed: false },
-                              ];
+                              // บันทึกลงฐานข้อมูลจริงและลบข้อเดิมทิ้งทั้งหมด จึงต้องถามก่อนถ้ามีรายการอยู่แล้ว
+                              if (
+                                task.checklists.length > 0 &&
+                                !confirm(`โหลด Flow RD จะแทนที่ Checklist เดิมทั้ง ${task.checklists.length} ข้อ (รวมข้อที่ติ๊กไว้แล้ว) ต้องการดำเนินการต่อหรือไม่?`)
+                              ) {
+                                return;
+                              }
+                              replaceChecklist(task.id, RD_FLOW_STEPS);
                               setNewChecklistInput('');
                             }}
                             className="text-[10px] font-black px-2 py-0.5 bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300 rounded-md transition-colors cursor-pointer"
@@ -593,11 +606,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                           onKeyDown={e => {
                             if (e.key === 'Enter' && newChecklistInput.trim()) {
                               e.preventDefault();
-                              task.checklists.push({
-                                id: `chk-${Date.now()}`,
-                                title: newChecklistInput.trim(),
-                                completed: false,
-                              });
+                              addChecklistItem(task.id, newChecklistInput.trim());
                               setNewChecklistInput('');
                             }
                           }}
@@ -607,11 +616,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                           type="button"
                           onClick={() => {
                             if (newChecklistInput.trim()) {
-                              task.checklists.push({
-                                id: `chk-${Date.now()}`,
-                                title: newChecklistInput.trim(),
-                                completed: false,
-                              });
+                              addChecklistItem(task.id, newChecklistInput.trim());
                               setNewChecklistInput('');
                             }
                           }}
@@ -648,7 +653,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                                 <input
                                   type="checkbox"
                                   checked={chk.completed}
-                                  disabled={isLockedStatus}
+                                  disabled={isLockedStatus || isUnsaved(chk.id)}
                                   onChange={e => handleChecklistToggle(chk.id, e.target.checked, chk.resultStatus, chk.resultReason)}
                                   className="rounded-md border-gray-300 text-orange-600 focus:ring-orange-500 w-4 h-4 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                                 />
@@ -658,9 +663,12 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                                     value={editingChecklistText}
                                     onChange={e => setEditingChecklistText(e.target.value)}
                                     onBlur={() => {
-                                      const target = task.checklists.find(c => c.id === chk.id);
-                                      if (target) target.title = editingChecklistText;
+                                      const title = editingChecklistText.trim();
+                                      if (title && title !== chk.title) renameChecklistItem(task.id, chk.id, title);
                                       setEditingChecklistId(null);
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') e.currentTarget.blur();
                                     }}
                                     className="flex-1 px-2 py-0.5 border border-orange-400 rounded-lg text-xs"
                                     autoFocus
@@ -675,17 +683,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                               {/* Right Column: ผลลัพธ์ Dropdown */}
                               <div className="flex items-center space-x-1.5 shrink-0">
                                 <select
-                                  disabled={isLockedStatus}
+                                  disabled={isLockedStatus || isUnsaved(chk.id)}
                                   value={currentResult}
                                   onChange={e => {
                                     const val = e.target.value as 'success' | 'fail';
-                                    chk.resultStatus = val;
-                                    if (val === 'success') {
-                                      chk.completed = true;
-                                    } else {
-                                      chk.completed = false;
-                                    }
-                                    handleChecklistToggle(chk.id, chk.completed, val, chk.resultReason);
+                                    handleChecklistToggle(chk.id, val === 'success', val, chk.resultReason);
                                   }}
                                   className={`text-xs font-black px-2.5 py-1 rounded-lg border focus:outline-none transition-all cursor-pointer ${
                                     currentResult === 'fail'
@@ -697,7 +699,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                                   <option value="fail" className="bg-white text-red-800 font-bold">ไม่สำเร็จ</option>
                                 </select>
 
-                                {!isLockedStatus && (
+                                {!isLockedStatus && !isUnsaved(chk.id) && (
                                   <div className="flex items-center space-x-0.5 shrink-0">
                                     {/* Edit Checklist Item */}
                                     <button
@@ -715,10 +717,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                                     {/* Delete Checklist Item */}
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        task.checklists = task.checklists.filter(c => c.id !== chk.id);
-                                        handleChecklistToggle(chk.id, false);
-                                      }}
+                                      onClick={() => deleteChecklistItem(task.id, chk.id)}
                                       className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
                                       title="ลบข้อนี้"
                                     >

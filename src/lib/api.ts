@@ -606,6 +606,39 @@ export async function updateChecklistItem(
   if (!data || data.length === 0) throw new Error('อัปเดตรายการตรวจไม่สำเร็จ: ไม่มีสิทธิ์แก้ไขการ์ดงานนี้');
 }
 
+/** เพิ่มข้อ checklist ต่อท้ายรายการเดิมของการ์ด */
+export async function addChecklistItem(db: SupabaseClient, taskId: string, title: string): Promise<void> {
+  const { data, error } = await db
+    .from('task_checklist_items')
+    .select('sort_order')
+    .eq('task_id', taskId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`เพิ่มรายการตรวจไม่สำเร็จ: ${error.message}`);
+  const lastOrder = (data?.[0] as Row | undefined)?.sort_order ?? 0;
+  await insertChecklistItems(db, taskId, [{ title, completed: false }], lastOrder);
+}
+
+export async function renameChecklistItem(db: SupabaseClient, checklistId: string, title: string): Promise<void> {
+  const { data, error } = await db.from('task_checklist_items').update({ title }).eq('id', checklistId).select('id');
+  if (error) throw new Error(`แก้ไขรายการตรวจไม่สำเร็จ: ${error.message}`);
+  if (!data || data.length === 0) throw new Error('แก้ไขรายการตรวจไม่สำเร็จ: ไม่มีสิทธิ์แก้ไขการ์ดงานนี้');
+}
+
+export async function deleteChecklistItem(db: SupabaseClient, checklistId: string): Promise<void> {
+  const { data, error } = await db.from('task_checklist_items').delete().eq('id', checklistId).select('id');
+  if (error) throw new Error(`ลบรายการตรวจไม่สำเร็จ: ${error.message}`);
+  // RLS ไม่ให้ลบจะไม่ error แต่ได้ 0 แถว — ต้องแจ้ง ไม่งั้นข้อที่ลบจะโผล่กลับมาเงียบ ๆ
+  if (!data || data.length === 0) throw new Error('ลบรายการตรวจไม่สำเร็จ: ไม่มีสิทธิ์แก้ไขการ์ดงานนี้');
+}
+
+/** แทนที่ checklist ทั้งชุดของการ์ด (ใช้ตอนโหลด Flow สำเร็จรูป) */
+export async function replaceChecklistItems(db: SupabaseClient, taskId: string, titles: string[]): Promise<void> {
+  const { error } = await db.from('task_checklist_items').delete().eq('task_id', taskId);
+  if (error) throw new Error(`ล้างรายการตรวจเดิมไม่สำเร็จ: ${error.message}`);
+  await insertChecklistItems(db, taskId, titles.map(title => ({ title, completed: false })), 0);
+}
+
 // =============================================================================
 // การเขียนข้อมูล — งวดงาน
 // =============================================================================

@@ -86,6 +86,10 @@ export interface AppContextType {
   updateTaskHolderName: (taskId: string, holderName: string) => void;
   updateTaskFinancials: (taskId: string, financials: TwoTierFinancials) => void;
   addAnnotation: (taskId: string, annotation: Omit<ImageAnnotation, 'id' | 'createdAt' | 'authorName'>) => void;
+  addChecklistItem: (taskId: string, title: string) => void;
+  renameChecklistItem: (taskId: string, checklistId: string, title: string) => void;
+  deleteChecklistItem: (taskId: string, checklistId: string) => void;
+  replaceChecklist: (taskId: string, titles: string[]) => void;
   updateChecklist: (
     taskId: string,
     checklistId: string,
@@ -475,6 +479,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  // แก้ checklist ของการ์ดบนหน้าจอทันที แล้วบันทึกจริง — ไม่ว่าสำเร็จหรือไม่ ดึงค่าจริงกลับมาทับเสมอ
+  const changeChecklist = (
+    taskId: string,
+    apply: (items: ChecklistItem[]) => ChecklistItem[],
+    save: () => Promise<void>
+  ) => {
+    setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, checklists: apply(t.checklists) } : t)));
+    void run(async () => {
+      try {
+        await save();
+      } finally {
+        await refreshTask(taskId);
+      }
+    });
+  };
+
+  const addChecklistItem = (taskId: string, title: string) =>
+    changeChecklist(
+      taskId,
+      items => [...items, { id: `pending-${Date.now()}`, title, completed: false }],
+      () => api.addChecklistItem(db, taskId, title)
+    );
+
+  const renameChecklistItem = (taskId: string, checklistId: string, title: string) =>
+    changeChecklist(
+      taskId,
+      items => items.map(c => (c.id === checklistId ? { ...c, title } : c)),
+      () => api.renameChecklistItem(db, checklistId, title)
+    );
+
+  const deleteChecklistItem = (taskId: string, checklistId: string) =>
+    changeChecklist(
+      taskId,
+      items => items.filter(c => c.id !== checklistId),
+      () => api.deleteChecklistItem(db, checklistId)
+    );
+
+  const replaceChecklist = (taskId: string, titles: string[]) =>
+    changeChecklist(
+      taskId,
+      () => titles.map((title, i) => ({ id: `pending-${Date.now()}-${i}`, title, completed: false })),
+      () => api.replaceChecklistItems(db, taskId, titles)
+    );
+
   const updateChecklist = (
     taskId: string,
     checklistId: string,
@@ -849,6 +897,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateTaskHolderName,
         updateTaskFinancials,
         addAnnotation,
+        addChecklistItem,
+        renameChecklistItem,
+        deleteChecklistItem,
+        replaceChecklist,
         updateChecklist,
         submitTaskForReview,
         uploadAttachmentFile,
