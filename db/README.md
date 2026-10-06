@@ -30,6 +30,7 @@
 | `17_checklist_completed_by.sql` | เก็บว่าใครติ๊ก checklist (`completed_by_user_id`, `completed_at` — trigger เติมจาก session) ให้คนที่มาติ๊กงานแทนขึ้นใน "ผู้ร่วมทำงานแทน" — รันซ้ำได้ |
 | `18_project_delete_super_admin.sql` | ลบโครงการได้เฉพาะ Super Admin (เดิม admin ทุกคนลบได้) — ใช้คู่กับเมนู "การตั้งค่าระบบ" — รันซ้ำได้ |
 | `19_line_extra_groups.sql` | ตาราง `line_groups` ให้ส่งแจ้งเตือน LINE เข้ากลุ่มเพิ่มเติมได้ (ตั้งจากหน้าการตั้งค่าระบบ) — **ต้อง deploy Edge Function `line-dispatch` เวอร์ชันใหม่คู่กัน** — รันซ้ำได้ |
+| `20_line_instant_dispatch.sql` | ส่ง LINE ทันทีเมื่อมีข้อความเข้าคิว (trigger เรียก `line-dispatch` ผ่าน pg_net) ไม่ต้องรอรอบกวาด 15 นาที — URL ดึงจากงาน cron ของ `08` จึง**ต้องรันหลัง `08`** — รันซ้ำได้ |
 
 ต้องใช้ **PostgreSQL 15 ขึ้นไป** (ใช้ `security_invoker` ของ view) ทดสอบแล้วบน PostgreSQL 17.10
 
