@@ -15,7 +15,10 @@ import {
   combineOutcomes,
   LINE_PUSH_URL,
   MAX_ATTEMPTS,
+  messagesUsed,
   type PushOutcome,
+  type Recipient,
+  recipientsForRow,
   retryKeyFor,
 } from './lib.ts';
 
@@ -93,7 +96,7 @@ Deno.serve(async (req: Request) => {
     console.error(`[line-dispatch] อ่าน line_groups ไม่ได้ ส่งเฉพาะกลุ่มหลัก: ${groupsError.message}`);
   }
 
-  const recipients: { groupId: string; isPrimary: boolean }[] = [];
+  const recipients: Recipient[] = [];
   if (primaryGroupId) recipients.push({ groupId: primaryGroupId, isPrimary: true });
   for (const g of (extraGroups ?? []) as { group_id: string }[]) {
     if (!recipients.some(r => r.groupId === g.group_id)) recipients.push({ groupId: g.group_id, isPrimary: false });
@@ -103,20 +106,21 @@ Deno.serve(async (req: Request) => {
   }
 
   // 2) เพดานรายเดือน — กันโควตา LINE บานปลาย
-  // 1 แถวถูกส่งออกไปทุกกลุ่ม จึงนับเป็น แถวที่ส่งแล้ว × จำนวนกลุ่มปลายทาง
+  // แถวทั่วไปถูกส่งออกไปทุกกลุ่ม นับ × จำนวนกลุ่ม ส่วนแถวที่ระบุกลุ่ม (target_group_id) นับ 1
   const monthStart = new Date();
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
 
-  const { count: sentRowsThisMonth, error: countError } = await db
-    .from('line_outbox')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'sent')
-    .gte('sent_at', monthStart.toISOString());
-
+  const [broadcastRes, targetedRes] = await Promise.all([
+    db.from('line_outbox').select('id', { count: 'exact', head: true })
+      .eq('status', 'sent').gte('sent_at', monthStart.toISOString()).is('target_group_id', null),
+    db.from('line_outbox').select('id', { count: 'exact', head: true })
+      .eq('status', 'sent').gte('sent_at', monthStart.toISOString()).not('target_group_id', 'is', null),
+  ]);
+  const countError = broadcastRes.error ?? targetedRes.error;
   if (countError) return json({ error: `นับโควตาไม่ได้: ${countError.message}` }, 500);
 
-  const sentThisMonth = (sentRowsThisMonth ?? 0) * recipients.length;
+  const sentThisMonth = messagesUsed(broadcastRes.count ?? 0, targetedRes.count ?? 0, recipients.length);
   if (sentThisMonth >= config.monthly_cap) {
     // ไม่เปลี่ยนสถานะแถว ปล่อยค้างไว้ให้ส่งต่อเดือนหน้าได้
     // แต่เขียน last_error ไว้ให้แอดมินเห็นว่าทำไมเงียบ — ห้ามเงียบหายเฉย ๆ
@@ -139,11 +143,11 @@ Deno.serve(async (req: Request) => {
   let sent = 0;
   let failed = 0;
 
-  for (const row of rows as { id: string; message: string }[]) {
+  for (const row of rows as { id: string; message: string; target_group_id: string | null }[]) {
     const outcomes: PushOutcome[] = [];
     const problems: string[] = [];
 
-    for (const recipient of recipients) {
+    for (const recipient of recipientsForRow(row.target_group_id, recipients, primaryGroupId)) {
       let status = 0;
       let detail = '';
 

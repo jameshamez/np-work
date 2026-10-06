@@ -98,3 +98,28 @@ export function combineOutcomes(outcomes: PushOutcome[]): PushOutcome {
   if (outcomes.includes('giveup')) return 'giveup';
   return outcomes.includes('deduped') ? 'deduped' : 'sent';
 }
+
+export interface Recipient {
+  groupId: string;
+  isPrimary: boolean;
+}
+
+/**
+ * กลุ่มปลายทางของ 1 แถว
+ *   แถวที่ระบุ target_group_id (เช่น สรุปงานรออนุมัติของผู้ตรวจ) -> กลุ่มนั้นกลุ่มเดียว
+ *   แถวทั่วไป -> กลุ่มหลัก + กลุ่มเพิ่มเติมทั้งหมด
+ * กลุ่มเป้าหมายที่บังเอิญเป็นกลุ่มหลักใช้คีย์กันซ้ำแบบกลุ่มหลัก (ดู retryKeyFor)
+ */
+export function recipientsForRow(
+  targetGroupId: string | null | undefined,
+  allRecipients: Recipient[],
+  primaryGroupId: string,
+): Recipient[] {
+  if (!targetGroupId) return allRecipients;
+  return [{ groupId: targetGroupId, isPrimary: targetGroupId === primaryGroupId }];
+}
+
+/** จำนวนข้อความที่ใช้ไปเดือนนี้ — แถวทั่วไปนับคูณจำนวนกลุ่ม แถวระบุกลุ่มนับ 1 */
+export function messagesUsed(sentBroadcastRows: number, sentTargetedRows: number, groupCount: number): number {
+  return sentBroadcastRows * groupCount + sentTargetedRows;
+}

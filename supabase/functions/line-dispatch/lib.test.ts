@@ -6,6 +6,8 @@ import {
   combineOutcomes,
   LINE_DUPLICATE_STATUS,
   MAX_ATTEMPTS,
+  messagesUsed,
+  recipientsForRow,
   retryKeyFor,
   shouldRetry,
 } from './lib';
@@ -136,5 +138,30 @@ describe('combineOutcomes', () => {
 
   it('กลุ่มที่ล้มเหลวถาวรทำให้ทั้งแถวเลิกลอง', () => {
     expect(combineOutcomes(['sent', 'giveup'])).toBe('giveup');
+  });
+});
+
+describe('recipientsForRow', () => {
+  const primary = 'C' + '1'.repeat(32);
+  const extra = 'C' + '2'.repeat(32);
+  const all = [{ groupId: primary, isPrimary: true }, { groupId: extra, isPrimary: false }];
+
+  it('แถวทั่วไปส่งทุกกลุ่ม', () => {
+    expect(recipientsForRow(null, all, primary)).toEqual(all);
+  });
+
+  it('แถวที่ระบุกลุ่มส่งเข้ากลุ่มนั้นกลุ่มเดียว แม้ไม่อยู่ในรายการกลุ่มเพิ่มเติม', () => {
+    const target = 'C' + '3'.repeat(32);
+    expect(recipientsForRow(target, all, primary)).toEqual([{ groupId: target, isPrimary: false }]);
+  });
+
+  it('กลุ่มเป้าหมายที่เป็นกลุ่มหลักใช้คีย์แบบกลุ่มหลัก', () => {
+    expect(recipientsForRow(primary, all, primary)).toEqual([{ groupId: primary, isPrimary: true }]);
+  });
+});
+
+describe('messagesUsed', () => {
+  it('แถวทั่วไปคูณจำนวนกลุ่ม แถวระบุกลุ่มนับ 1', () => {
+    expect(messagesUsed(10, 4, 2)).toBe(24);
   });
 });

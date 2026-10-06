@@ -132,3 +132,62 @@ export async function deleteLineGroup(db: SupabaseClient, id: string): Promise<v
   if (error) throw new Error(`ลบกลุ่ม LINE ไม่สำเร็จ: ${error.message}`);
   if (!data || data.length === 0) throw new Error('ลบกลุ่ม LINE ไม่สำเร็จ: เฉพาะ Super Admin เท่านั้น');
 }
+
+// =============================================================================
+// สรุปงานรออนุมัติรายผู้อนุมัติ (db/21_line_reviewer_digest.sql) — เฉพาะ Super Admin
+// =============================================================================
+
+export interface ReviewerDigest {
+  id: string;
+  reviewerUserId: string;
+  groupId: string;
+  sendTime: string; // HH:MM เวลาไทย
+  enabled: boolean;
+  lastSentDate?: string;
+}
+
+export async function fetchReviewerDigests(db: SupabaseClient): Promise<ReviewerDigest[]> {
+  const { data, error } = await db.from('line_reviewer_digests').select('*').order('created_at');
+  if (error) throw new Error(`อ่านการตั้งค่าสรุปงานรออนุมัติไม่สำเร็จ: ${error.message}`);
+  return (data ?? []).map(r => ({
+    id: r.id,
+    reviewerUserId: r.reviewer_user_id,
+    groupId: r.group_id,
+    sendTime: String(r.send_time).slice(0, 5),
+    enabled: r.enabled,
+    lastSentDate: r.last_sent_date ?? undefined,
+  }));
+}
+
+export async function saveReviewerDigest(
+  db: SupabaseClient,
+  input: { id?: string; reviewerUserId: string; groupId: string; sendTime: string; enabled: boolean }
+): Promise<void> {
+  const row = {
+    reviewer_user_id: input.reviewerUserId,
+    group_id: input.groupId.trim(),
+    send_time: input.sendTime,
+    enabled: input.enabled,
+  };
+  const { data, error } = input.id
+    ? await db.from('line_reviewer_digests').update(row).eq('id', input.id).select('id')
+    : await db.from('line_reviewer_digests').insert(row).select('id');
+  if (error) {
+    if (error.code === '23505') throw new Error('บันทึกไม่สำเร็จ: ผู้อนุมัตินี้ตั้งส่งเข้ากลุ่มนี้ไว้แล้ว');
+    throw new Error(`บันทึกการตั้งค่าสรุปงานรออนุมัติไม่สำเร็จ: ${error.message}`);
+  }
+  if (!data || data.length === 0) throw new Error('บันทึกไม่สำเร็จ: เฉพาะ Super Admin เท่านั้น');
+}
+
+export async function deleteReviewerDigest(db: SupabaseClient, id: string): Promise<void> {
+  const { data, error } = await db.from('line_reviewer_digests').delete().eq('id', id).select('id');
+  if (error) throw new Error(`ลบการตั้งค่าสรุปงานรออนุมัติไม่สำเร็จ: ${error.message}`);
+  if (!data || data.length === 0) throw new Error('ลบไม่สำเร็จ: เฉพาะ Super Admin เท่านั้น');
+}
+
+/** ปุ่ม "ส่งทดสอบตอนนี้" — คืนข้อความบอกผลจากฐานข้อมูล */
+export async function sendReviewerDigestNow(db: SupabaseClient, id: string): Promise<string> {
+  const { data, error } = await db.rpc('app_send_reviewer_digest_now', { p_id: id });
+  if (error) throw new Error(`ส่งทดสอบไม่สำเร็จ: ${error.message}`);
+  return String(data ?? '');
+}

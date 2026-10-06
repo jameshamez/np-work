@@ -140,6 +140,11 @@ export interface AppContextType {
   addLineGroup: (name: string, groupId: string) => Promise<void>;
   setLineGroupEnabled: (id: string, enabled: boolean) => Promise<void>;
   deleteLineGroup: (id: string) => Promise<void>;
+  /** สรุปงานรออนุมัติรายผู้อนุมัติ (เฉพาะ Super Admin) — โยน error ออกมาให้ผู้เรียกจัดการเอง */
+  fetchReviewerDigests: () => Promise<lineApi.ReviewerDigest[]>;
+  saveReviewerDigest: (input: Parameters<typeof lineApi.saveReviewerDigest>[1]) => Promise<void>;
+  deleteReviewerDigest: (id: string) => Promise<void>;
+  sendReviewerDigestNow: (id: string) => Promise<string>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -837,6 +842,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
   const deleteLineGroup = useCallback((id: string) => lineApi.deleteLineGroup(db, id), [db]);
 
+  const fetchReviewerDigests = useCallback(() => lineApi.fetchReviewerDigests(db), [db]);
+  const saveReviewerDigest = useCallback(
+    (input: Parameters<typeof lineApi.saveReviewerDigest>[1]) => lineApi.saveReviewerDigest(db, input),
+    [db]
+  );
+  const deleteReviewerDigest = useCallback((id: string) => lineApi.deleteReviewerDigest(db, id), [db]);
+  const sendReviewerDigestNow = useCallback((id: string) => lineApi.sendReviewerDigestNow(db, id), [db]);
+
   // ---------------------------------------------------------------------------
   // เทมเพลต Flow
   // ---------------------------------------------------------------------------
@@ -981,6 +994,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addLineGroup,
         setLineGroupEnabled,
         deleteLineGroup,
+        fetchReviewerDigests,
+        saveReviewerDigest,
+        deleteReviewerDigest,
+        sendReviewerDigestNow,
       }}
     >
       {error && (
