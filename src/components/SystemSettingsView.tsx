@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { AlertCircle, FolderKanban, Search, Settings, Trash2 } from 'lucide-react';
+import { AlertCircle, FolderKanban, Plus, Search, Settings, Trash2 } from 'lucide-react';
 import { LineGroupsSettings } from './LineGroupsSettings';
 import { ReviewerDigestSettings } from './ReviewerDigestSettings';
 
@@ -11,8 +11,12 @@ import { ReviewerDigestSettings } from './ReviewerDigestSettings';
  *   สรุปงานรออนุมัติ: ส่งงานรอตรวจของผู้อนุมัติแต่ละคนเข้ากลุ่มที่กำหนดตามเวลา (db/21)
  */
 export const SystemSettingsView: React.FC = () => {
-  const { currentUser, projects, tasks, deleteProject } = useApp();
+  const { currentUser, projects, tasks, addProject, deleteProject } = useApp();
   const [query, setQuery] = useState('');
+  const [newName, setNewName] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addNotice, setAddNotice] = useState<string | null>(null);
 
   // นับการ์ดต่อโครงการ (รวมร่าง) — โครงการที่ยังมีการ์ดลบไม่ได้
   const taskCountByProject = useMemo(() => {
@@ -35,6 +39,31 @@ export const SystemSettingsView: React.FC = () => {
   const visibleProjects = projects
     .filter(p => !q || p.name.toLowerCase().includes(q) || (p.code ?? '').toLowerCase().includes(q))
     .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newName.trim();
+    if (!name || adding) return;
+    // addProject คืนโครงการเดิมถ้าชื่อซ้ำ (ไม่สนตัวพิมพ์เล็ก/ใหญ่) — แจ้งผู้ใช้แทนการสร้างซ้ำ
+    const duplicate = projects.find(p => p.name.trim().toLowerCase() === name.toLowerCase());
+    if (duplicate) {
+      setAddError(`มีโครงการชื่อ "${duplicate.name}" อยู่แล้ว`);
+      setAddNotice(null);
+      return;
+    }
+    setAdding(true);
+    try {
+      await addProject(name);
+      setNewName('');
+      setAddError(null);
+      setAddNotice(`เพิ่มโครงการ "${name}" แล้ว`);
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : String(err));
+      setAddNotice(null);
+    } finally {
+      setAdding(false);
+    }
+  };
 
   const handleDelete = (projectId: string) => {
     const project = projects.find(p => p.id === projectId);
@@ -71,6 +100,29 @@ export const SystemSettingsView: React.FC = () => {
             />
           </div>
         </div>
+
+        <form onSubmit={handleAdd} className="flex flex-col sm:flex-row gap-2">
+          <input
+            type="text"
+            value={newName}
+            onChange={e => {
+              setNewName(e.target.value);
+              setAddError(null);
+            }}
+            placeholder="ชื่อโครงการใหม่ เช่น โครงการเครื่องอบพลังงานแสงอาทิตย์"
+            className="flex-1 min-w-0 px-3 py-1.5 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 placeholder:text-gray-400"
+          />
+          <button
+            type="submit"
+            disabled={!newName.trim() || adding}
+            className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center space-x-1"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>{adding ? 'กำลังเพิ่ม...' : 'เพิ่มโครงการ'}</span>
+          </button>
+        </form>
+        {addError && <p className="text-[11px] font-bold text-red-600 -mt-2">{addError}</p>}
+        {addNotice && !addError && <p className="text-[11px] font-bold text-emerald-700 -mt-2">{addNotice}</p>}
 
         <p className="text-[11px] text-gray-500">
           โครงการที่ยังมีการ์ดงานอยู่ (รวมร่าง) จะลบไม่ได้ เพื่อไม่ให้การ์ดงานและประวัติหายไปด้วย — ย้ายหรือลบการ์ดงานก่อน
