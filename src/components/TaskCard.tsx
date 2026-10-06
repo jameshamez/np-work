@@ -15,6 +15,7 @@ import {
   GraduationCap,
   PenTool,
   Trash2,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface TaskCardProps {
@@ -218,6 +219,16 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             ผู้รับผิดชอบ: <strong className="font-extrabold">{task.assignedToUserName?.replace(/\s*\([^)]*\)/g, '').trim()}</strong>
           </span>
         </div>
+
+        {/* ผู้อนุมัติ (ผู้ตรวจที่เลือกตอนส่งตรวจ) */}
+        {task.reviewerUserName && (
+          <div className="bg-violet-50 border border-violet-200/70 rounded-xl p-2 text-[11px] text-violet-950 flex items-center space-x-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-violet-600 shrink-0" />
+            <span className="truncate">
+              ผู้อนุมัติ: <strong className="font-extrabold">{task.reviewerUserName.replace(/\s*\([^)]*\)/g, '').trim()}</strong>
+            </span>
+          </div>
+        )}
 
         {/* Delegation Badge info */}
         {isDelegatedLastAction && (

@@ -99,8 +99,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [newChecklistInput, setNewChecklistInput] = useState('');
 
   // Selected Approver state (Page 10)
+  // เริ่มจากผู้อนุมัติที่บันทึกไว้ในการ์ด แล้วส่งต่อให้หน้าส่งตรวจเป็นค่าเริ่มต้น (บันทึกจริงตอนกดส่งตรวจ)
   const [selectedApproverId, setSelectedApproverId] = useState<string>(() => {
-    const admin = users.find(u => u.role === 'admin' || u.role === 'super_admin');
+    if (task?.reviewerUserId) return task.reviewerUserId;
+    const admin = users.find(u => u.status === 'approved' && (u.role === 'admin' || u.role === 'super_admin'));
     return admin?.id || '';
   });
 
@@ -380,12 +382,22 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             <div className="space-y-5">
               
               {/* Meta Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100 text-xs">
                 <div>
                   <span className="text-[10px] text-gray-400 block font-semibold">ผู้รับผิดชอบงาน</span>
                   <span className="font-bold text-gray-800 flex items-center space-x-1 mt-0.5">
                     <User className="w-3.5 h-3.5 text-orange-600" />
                     <span>{task.assignedToUserName}</span>
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-gray-400 block font-semibold">ผู้อนุมัติ</span>
+                  <span className="font-bold text-gray-800 flex items-center space-x-1 mt-0.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-violet-600" />
+                    <span className={task.reviewerUserName ? '' : 'text-gray-400 font-medium'}>
+                      {task.reviewerUserName?.replace(/\s*\([^)]*\)/g, '').trim() || 'ยังไม่ระบุ'}
+                    </span>
                   </span>
                 </div>
 
@@ -1254,7 +1266,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   className="text-xs font-bold text-gray-800 bg-transparent focus:outline-none"
                 >
                   {users
-                    .filter(u => u.role === 'admin' || u.role === 'super_admin')
+                    .filter(u => u.status === 'approved' && (u.role === 'admin' || u.role === 'super_admin'))
                     .map(u => (
                       <option key={u.id} value={u.id}>
                         {u.fullName?.replace(/\s*\([^)]*\)/g, '')}
@@ -1282,7 +1294,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     return;
                   }
                   onClose();
-                  onOpenSubmitModal(task);
+                  onOpenSubmitModal({ ...task, reviewerUserId: selectedApproverId || task.reviewerUserId });
                 }}
                 className="px-4 py-2 text-xs font-bold text-white rounded-xl shadow-xs transition-all hover:opacity-90 flex items-center space-x-1 cursor-pointer"
                 style={{ backgroundColor: '#ef6c00' }}
